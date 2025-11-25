@@ -100,7 +100,7 @@ public class MenuApp {
         System.out.println("1. Consulter nos catalogues");
         System.out.println("2. Alertes de peremption (" + nombreAlertePeremption + ")");
         if (clientOublie) {
-            System.out.println("Vous ne pouvez pas passer commande, car êtes anonyme.");
+            System.out.println("3-4. Vous ne pouvez pas passer, ni cloturer commande, car êtes anonyme.");
         } else {
             System.out.println("3. Passer une commande");
             System.out.println("4. Cloturer une commande");
@@ -503,9 +503,10 @@ public class MenuApp {
                 menuPrincipal();
             } else if (Objects.equals(reponse, "n")) {
                 System.out.println("Pas de soucis");
-                pause();
-                menuPrincipal();
+
             }
+            pause();
+            menuPrincipal();
         } else {
             clearScreen();
             System.out.println("Voulez vous supprimer vos informations personnelles ? (y/n)");
@@ -513,13 +514,11 @@ public class MenuApp {
         String reponse = scanner.next();
         if (Objects.equals(reponse, "y")) {
             // Suprimer les données persos
-            pause();
-            menuPrincipal();
         } else if (Objects.equals(reponse, "n")) {
             System.out.println("Merci pour votre confiance");
-            pause();
-            menuPrincipal();
         }
+        pause();
+        menuPrincipal();
     }
 
 
