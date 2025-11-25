@@ -6,9 +6,9 @@ import java.util.List;
 
 public class OracleDB {
 
-    private static final String URL  = "jdbc:oracle:thin:@//localhost:1521/XE";
-    private static final String USER = "SYSTEM";
-    private static final String PASS = "0000";
+    private static final String URL = "jdbc:oracle:thin:@oracle1.ensimag.fr:1521:oracle1";
+    private static final String USER = "touatia";
+    private static final String PASS = "touatia";
 
     private Connection conn;
     public Connection getConnection() {
@@ -20,9 +20,7 @@ public class OracleDB {
         try {
             Class.forName("oracle.jdbc.driver.OracleDriver");
             this.conn = DriverManager.getConnection(URL, USER, PASS);
-            System.out.println("Connexion Oracle réussie ✔");
         } catch (Exception e) {
-            System.out.println("Échec connexion Oracle ❌");
             e.printStackTrace();
         }
     }
@@ -116,7 +114,6 @@ public class OracleDB {
     public void close() {
         try {
             if (conn != null) conn.close();
-            System.out.println("Connexion fermée.");
         } catch (Exception e) {
             e.printStackTrace();
         }
