@@ -6,9 +6,9 @@ import java.util.List;
 
 public class OracleDB {
 
-    private static final String URL  = "jdbc:oracle:thin:@//localhost:1521/XE";
-    private static final String USER = "SYSTEM";
-    private static final String PASS = "0000";
+    private static final String URL = "jdbc:oracle:thin:@oracle1.ensimag.fr:1521:oracle1";
+    private static final String USER = "touatia";
+    private static final String PASS = "touatia";
 
     private Connection conn;
     public Connection getConnection() {
