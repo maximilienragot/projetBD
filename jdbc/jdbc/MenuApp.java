@@ -1,4 +1,5 @@
 package jdbc;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -37,8 +38,11 @@ public class MenuApp {
     public static void connectionDuClient() {
         System.out.println("Bonjour, voulez vous vous connecter ? (y/n)\n");
         if (scanner.next().equals("y")) {
-            System.out.println("veuillez donner votre id_client.");
-            String id_client = scanner.next();
+            while (id_client.equals("")) {
+                clearScreen();
+                System.out.println("veuillez donner votre id_client.");
+                id_client = scanner.next();
+            }
             try {
                 OracleDB db = new OracleDB();
                 Statement stmt = db.getConnection().createStatement();
@@ -54,10 +58,10 @@ public class MenuApp {
                     }
                 } else {
                     System.out.println(" Vous n'existez pas encore, on vous a inscrit d'office. c'est cadeau");
-                        // ajouter le client ........................................
-                        MenuApp.id_client = "a";
-                        pause();
-                        menuPrincipal();
+                    // ajouter le client ........................................
+                    MenuApp.id_client = "a";
+                    pause();
+                    menuPrincipal();
                 }
                 stmt.close();
                 db.close();
@@ -80,22 +84,27 @@ public class MenuApp {
         clearScreen();
         LocalDate dateCourante = LocalDate.now();
         LocalDate limite = dateCourante.plusDays(MARGE_TOLERE_EXPIRATION);
+
         try {
             OracleDB db = new OracleDB();
-            Statement stmt = db.getConnection().createStatement();
+            String sql = "SELECT COUNT(*) FROM Lot_Produit WHERE date_peremption <= ?";
 
-            String sql = "SELECT COUNT(*) FROM Lot_Produit WHERE date_peremption <= " + limite;
-            ResultSet rs = stmt.executeQuery(sql);
+            PreparedStatement pstmt = db.getConnection().prepareStatement(sql);
+            pstmt.setDate(1, java.sql.Date.valueOf(limite));
+
+            ResultSet rs = pstmt.executeQuery();
             rs.next();
             nombreAlertePeremption = rs.getInt(1);
+
             rs.close();
-            stmt.close();
+            pstmt.close();
             db.close();
         } catch (Exception e) {
             e.printStackTrace();
             pause();
             return;
         }
+
         System.out.println("===== MENU PRINCIPAL =====");
         System.out.println("1. Consulter nos catalogues");
         System.out.println("2. Alertes de peremption (" + nombreAlertePeremption + ")");
@@ -163,7 +172,7 @@ public class MenuApp {
             switch (choix) {
                 case 1:
                     clearScreen();
-                    db.runQuery(requetes.get(0));
+                    db.runQuery(requetes.getFirst());
                     db.close();
                     pause();
                     break;
@@ -492,6 +501,9 @@ public class MenuApp {
         menuPrincipal();
     }
 
+    // ============================
+    // ANONYMISATION
+    // ============================
     public static void questionAnonymisation() {
         if (clientOublie) {
             clearScreen();
@@ -499,6 +511,7 @@ public class MenuApp {
             String reponse = scanner.next();
             if (Objects.equals(reponse, "y")) {
                 // Entrer les données persos
+                clientOublie = false;
                 pause();
                 menuPrincipal();
             } else if (Objects.equals(reponse, "n")) {
@@ -514,6 +527,7 @@ public class MenuApp {
         String reponse = scanner.next();
         if (Objects.equals(reponse, "y")) {
             // Suprimer les données persos
+            clientOublie = true;
         } else if (Objects.equals(reponse, "n")) {
             System.out.println("Merci pour votre confiance");
         }

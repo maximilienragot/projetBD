@@ -29,7 +29,7 @@ public class OracleDB {
     public void runQuery(String sql) {
         try {
             if (conn == null) {
-                System.out.println("❌ Impossible d'exécuter la requête : pas de connexion.");
+                System.out.println(" Impossible d'exécuter la requête : pas de connexion.");
                 return;
             }
 
