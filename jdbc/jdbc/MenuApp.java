@@ -1,4 +1,5 @@
 package jdbc;
+import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -111,10 +112,13 @@ public class MenuApp {
 
         try {
             OracleDB db = new OracleDB();
-            String sql = "SELECT COUNT(*) FROM Lot_Produit WHERE date_peremption <= ?";
+            String sql = "SELECT COUNT(*) " +
+                    "FROM Lot_Produit " +
+                    "WHERE REGEXP_LIKE(date_peremption, '^[0-9]{2}-[A-Z]{3}-[0-9]{2}$') " +
+                    "AND TO_DATE(date_peremption, 'DD-MON-RR', 'NLS_DATE_LANGUAGE=AMERICAN') <= TO_DATE(?, 'YYYY-MM-DD')";
 
             PreparedStatement pstmt = db.getConnection().prepareStatement(sql);
-            pstmt.setDate(1, java.sql.Date.valueOf(limite));
+            pstmt.setString(1, limite.toString());
 
             ResultSet rs = pstmt.executeQuery();
             rs.next();
@@ -131,7 +135,7 @@ public class MenuApp {
 
         System.out.println("===== MENU PRINCIPAL =====");
         System.out.println("1. Consulter nos catalogues");
-        System.out.println("2. Alertes de peremption (" + nombreAlertePeremption + ")");
+        System.out.println("2. Alertes  de peremption (" + nombreAlertePeremption + ")");
 
         if (Objects.equals(id_client, "")) {
             System.out.println("3-4. Vous ne pouvez pas passer, ni cloturer commande, car n'êtes pas inscrit(e)/connécté(e).");
@@ -165,6 +169,15 @@ public class MenuApp {
                 case 3:
                     if (!(clientOublie || Objects.equals(id_client, ""))) {
                         Passer_Commande();
+                    }
+                    break;
+                case 4:
+                    // Clôturer une commande
+                    if (!(clientOublie || Objects.equals(id_client, ""))) {
+                        cloturerCommande();
+                    } else {
+                        System.out.println("Vous devez être connecté(e) et non anonyme pour clôturer une commande.");
+                        pause();
                     }
                     break;
                 case 5:
@@ -215,7 +228,7 @@ public class MenuApp {
             switch (choix) {
                 case 1:
                     clearScreen();
-                    db.runQuery(requetes.getFirst());
+                    db.runQuery(requetes.get(0));
                     db.close();
                     pause();
                     break;
@@ -383,7 +396,7 @@ public class MenuApp {
                 } catch (SQLException e) {
                     System.out.println("Erreur lecture article/produit : " + e.getMessage());
                     e.printStackTrace();
-                    continue; // revenir au choix de produit
+                    continue; // revenir au choix de produita
                 }
 
                 if (nomProduit == null || nomProduit.isEmpty()) {
@@ -523,7 +536,9 @@ public class MenuApp {
                 OracleDB db = new OracleDB();
                 Statement stmt = db.getConnection().createStatement();
 
-                String sql = "SELECT * FROM Lot_Produit WHERE date_peremption <= " + limite;
+                String sql = "SELECT * FROM Lot_Produit " +
+                        "WHERE REGEXP_LIKE(date_peremption, '^[0-9]{2}-[A-Z]{3}-[0-9]{2}$') " +
+                        "AND TO_DATE(date_peremption, 'DD-MON-RR', 'NLS_DATE_LANGUAGE=AMERICAN') <= TO_DATE('" + limite + "', 'YYYY-MM-DD')";
 
                 ResultSet rs = stmt.executeQuery(sql);
 
@@ -578,6 +593,214 @@ public class MenuApp {
         menuPrincipal();
     }
 
+
+
+    // ============================
+    // CLOTURER UNE COMMANDE
+    // ============================
+
+    public static void cloturerCommande() {
+        clearScreen();
+        System.out.println("===== Clôturer une commande =====");
+
+        if (Objects.equals(id_client, "")) {
+            System.out.println("Vous n'êtes pas connecté(e).");
+            pause();
+            menuPrincipal();
+            return;
+        }
+
+        OracleDB db = new OracleDB();
+        Connection conn = null;
+
+        try {
+            conn = db.getConnection();
+            conn.setAutoCommit(false);
+
+            // 1) Lister les commandes "en cours" pour ce client
+            System.out.println("Vos commandes en cours (En Préparation / Prête / En Livraison) :");
+            String sqlListe =
+                    "SELECT IdCommande, date_Com, Statut, Mode_Paiement, Mode_Recuperation, Prix_Total " +
+                            "FROM Commande " +
+                            "WHERE IdClient = ? " +
+                            "AND Statut IN ('En Préparation', 'Prête', 'En Livraison')";
+
+            PreparedStatement psListe = conn.prepareStatement(sqlListe);
+            psListe.setInt(1, Integer.parseInt(id_client));
+            ResultSet rsListe = psListe.executeQuery();
+
+            System.out.printf("%-10s %-12s %-20s %-20s %-22s %-10s%n",
+                    "IdCmd", "Date", "Statut", "ModePaiement", "ModeRecuperation", "Total");
+            while (rsListe.next()) {
+                int idCmd = rsListe.getInt("IdCommande");
+                java.sql.Date dateCom = rsListe.getDate("date_Com");
+                String statut = rsListe.getString("Statut");
+                String modePaiement = rsListe.getString("Mode_Paiement");
+                String modeRecup = rsListe.getString("Mode_Recuperation");
+                double total = rsListe.getDouble("Prix_Total");
+
+                System.out.printf("%-10d %-12s %-20s %-20s %-22s %-10.2f%n",
+                        idCmd, dateCom, statut, modePaiement, modeRecup, total);
+            }
+
+            rsListe.close();
+            psListe.close();
+
+            System.out.print("\nEntrez l'ID de la commande à clôturer (0 pour annuler) : ");
+            int idCommande = scanner.nextInt();
+            scanner.nextLine();
+            if (idCommande == 0) {
+                conn.rollback();
+                db.close();
+                menuPrincipal();
+                return;
+            }
+
+            // 2) Récupérer les infos de cette commande
+            String sqlCmd =
+                    "SELECT Statut, Mode_Paiement, Mode_Recuperation " +
+                            "FROM Commande WHERE IdCommande = ?";
+            PreparedStatement psCmd = conn.prepareStatement(sqlCmd);
+            psCmd.setInt(1, idCommande);
+            ResultSet rsCmd = psCmd.executeQuery();
+
+            if (!rsCmd.next()) {
+                System.out.println("Aucune commande avec cet ID.");
+                rsCmd.close();
+                psCmd.close();
+                conn.rollback();
+                db.close();
+                pause();
+                menuPrincipal();
+                return;
+            }
+
+            String statutActuel = rsCmd.getString("Statut");
+            String modePaiement = rsCmd.getString("Mode_Paiement");
+            String modeRecup = rsCmd.getString("Mode_Recuperation");
+
+            rsCmd.close();
+            psCmd.close();
+
+            System.out.println("\nCommande " + idCommande + " :");
+            System.out.println("Statut actuel       : " + statutActuel);
+            System.out.println("Mode de paiement    : " + modePaiement);
+            System.out.println("Mode de récupération: " + modeRecup);
+
+            // 3) Demander la nouvelle action/statut
+            System.out.println("\nQue voulez-vous faire ?");
+            System.out.println("1 - Marquer comme 'Prête'");
+            System.out.println("2 - Marquer comme 'En Livraison'");
+            System.out.println("3 - Marquer comme 'Récupérée | Livrée'");
+            System.out.println("4 - Annuler la commande");
+            System.out.print("Votre choix : ");
+            int choixAction = scanner.nextInt();
+            scanner.nextLine();
+
+            String nouveauStatut;
+            switch (choixAction) {
+                case 1: nouveauStatut = "Prête"; break;
+                case 2: nouveauStatut = "En Livraison"; break;
+                case 3: nouveauStatut = "Récupérée | Livrée"; break;
+                case 4: nouveauStatut = "Annulée"; break;
+                default:
+                    System.out.println("Action invalide.");
+                    conn.rollback();
+                    db.close();
+                    pause();
+                    menuPrincipal();
+                    return;
+            }
+
+            // 4) Vérifier le stock avant de clôturer (sauf en cas d'annulation)
+            if (!"Annulée".equals(nouveauStatut)) {
+                String sqlStockProbleme =
+                        "SELECT lc.IdArticle " +
+                                "FROM Ligne_Commande lc " +
+                                "JOIN Lot_Produit lp ON lp.IdArticle = lc.IdArticle " +
+                                "WHERE lc.IdCommande = ? " +
+                                "GROUP BY lc.IdArticle " +
+                                "HAVING SUM(lp.Qte_dispo) < SUM(lc.QteCom)";
+
+                PreparedStatement psStock = conn.prepareStatement(sqlStockProbleme);
+                psStock.setInt(1, idCommande);
+                ResultSet rsStock = psStock.executeQuery();
+
+                if (rsStock.next()) {
+                    int idArtProbleme = rsStock.getInt("IdArticle");
+                    System.out.println("\nStock insuffisant pour l'article " + idArtProbleme +
+                            ". Impossible de clôturer cette commande.");
+                    rsStock.close();
+                    psStock.close();
+                    conn.rollback();
+                    db.close();
+                    pause();
+                    menuPrincipal();
+                    return;
+                }
+                rsStock.close();
+                psStock.close();
+            }
+
+            // 5) Mettre à jour le statut de la commande
+            String sqlUpdate =
+                    "UPDATE Commande SET Statut = ? WHERE IdCommande = ?";
+            PreparedStatement psUpdate = conn.prepareStatement(sqlUpdate);
+            psUpdate.setString(1, nouveauStatut);
+            psUpdate.setInt(2, idCommande);
+            psUpdate.executeUpdate();
+            psUpdate.close();
+
+            // 6) Si statut final = 'Récupérée | Livrée', décrémenter le stock
+            if ("Récupérée | Livrée".equals(nouveauStatut)) {
+                String sqlLignes =
+                        "SELECT IdArticle, SUM(QteCom) AS QteTotale " +
+                                "FROM Ligne_Commande " +
+                                "WHERE IdCommande = ? " +
+                                "GROUP BY IdArticle";
+                PreparedStatement psLignes = conn.prepareStatement(sqlLignes);
+                psLignes.setInt(1, idCommande);
+                ResultSet rsLignes = psLignes.executeQuery();
+
+                while (rsLignes.next()) {
+                    int idArt = rsLignes.getInt("IdArticle");
+                    double qte = rsLignes.getDouble("QteTotale");
+
+                    String sqlMajLot =
+                            "UPDATE Lot_Produit " +
+                                    "SET Qte_dispo = Qte_dispo - ? " +
+                                    "WHERE IdArticle = ?";
+                    PreparedStatement psMajLot = conn.prepareStatement(sqlMajLot);
+                    psMajLot.setDouble(1, qte);
+                    psMajLot.setInt(2, idArt);
+                    psMajLot.executeUpdate();
+                    psMajLot.close();
+                }
+
+                rsLignes.close();
+                psLignes.close();
+            }
+
+            conn.commit();
+            System.out.println("\nCommande " + idCommande + " mise à jour avec le statut : " + nouveauStatut);
+
+        } catch (SQLException e) {
+            try {
+                if (conn != null) {
+                    conn.rollback();
+                }
+            } catch (SQLException ignored) {
+                // ignore rollback failure
+            }
+            System.out.println("\nErreur SQL lors de la clôture : " + e.getMessage());
+        } finally {
+            db.close();
+        }
+
+        System.out.println("\nAppuyez sur Entrée pour revenir au menu...");
+        scanner.nextLine();
+        menuPrincipal();
+    }
 
 
     // ============================
