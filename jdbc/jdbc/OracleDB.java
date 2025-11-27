@@ -20,9 +20,8 @@ public class OracleDB {
         try {
             Class.forName("oracle.jdbc.driver.OracleDriver");
             this.conn = DriverManager.getConnection(URL, USER, PASS);
-            System.out.println("Connexion Oracle réussie ✔");
         } catch (Exception e) {
-            System.out.println("Échec connexion Oracle ❌");
+            System.out.println("Échec connexion Oracle ");
             e.printStackTrace();
         }
     }
@@ -31,7 +30,7 @@ public class OracleDB {
     public void runQuery(String sql) {
         try {
             if (conn == null) {
-                System.out.println("❌ Impossible d'exécuter la requête : pas de connexion.");
+                System.out.println(" Impossible d'exécuter la requête : pas de connexion.");
                 return;
             }
 
@@ -116,7 +115,6 @@ public class OracleDB {
     public void close() {
         try {
             if (conn != null) conn.close();
-            System.out.println("Connexion fermée.");
         } catch (Exception e) {
             e.printStackTrace();
         }
