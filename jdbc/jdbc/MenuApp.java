@@ -371,53 +371,75 @@
         // MENU PRINCIPAL
         // ============================
         public static void menuPrincipal() {
-            int choix = -1;
-            clearScreen();
+            while (true) {
+                clearScreen();
+
                 nombreAlertePeremption = SystemeEpicerie.getNombreAlertePeremption();
-            while (choix != 0) {
+
                 System.out.println("===== MENU PRINCIPAL =====");
                 System.out.println("1. Consulter nos catalogues");
                 System.out.println("2. Alertes de peremption (" + nombreAlertePeremption + ")");
 
                 if (Objects.equals(id_client, "")) {
                     System.out.println("3. Passer une commande");
-                    System.out.println("4. Vous ne pouvez pas cloturer commande, car n'êtes pas inscrit(e)/connécté(e).");
-                    System.out.println("5. Inscription/connection");
+                    System.out.println("4. Vous ne pouvez pas clôturer de commande car vous n'êtes pas connecté(e).");
+                    System.out.println("5. Inscription / Connexion");
 
                 } else if (compteIncomplet) {
                     System.out.println("3. Passer une commande");
-                    System.out.println("4. Vous ne pouvez pas cloturer commande, car êtes n'avez pas finaliser vos données personelles");
+                    System.out.println("4. Impossible de clôturer : données personnelles incomplètes");
                     System.out.println("5. Anonymité");
-                    System.out.println("6. Deconnection");
+                    System.out.println("6. Déconnexion");
+
                 } else {
                     System.out.println("3. Passer une commande");
-                    System.out.println("4. Cloturer une commande");
+                    System.out.println("4. Clôturer une commande");
                     System.out.println("5. Anonymité");
-                    System.out.println("6. Deconnection");
+                    System.out.println("6. Déconnexion");
                 }
 
                 System.out.println("0. Quitter");
-    
                 System.out.print("Votre choix : ");
-                String choixStr = scanner.nextLine().trim();  // <-- lit toute la ligne et vide le buffer
+
+                // --- Lecture sécurisée ---
+                String input = scanner.nextLine().trim();
+                int choix;
                 try {
-                    choix = Integer.parseInt(choixStr);
+                    choix = Integer.parseInt(input);
                 } catch (Exception e) {
-                    choix = -1;  // ou 0 pour revenir au menu
+                    choix = -1;
                 }
-    
+
                 switch (choix) {
+
                     case 1:
                         menuCatalogue();
                         break;
+
                     case 2:
                         afficherDate();
                         break;
+
                     case 3:
                         if (!(compteIncomplet || Objects.equals(id_client, ""))) {
                             Passer_Commande();
+                        } else {
+                            System.out.println("Vous devez être connecté et complet pour commander.");
+                            pause();
                         }
                         break;
+
+                    case 4:
+                        if (Objects.equals(id_client, "")) {
+                            System.out.println("Impossible : vous n'êtes pas connecté(e).");
+                        } else if (compteIncomplet) {
+                            System.out.println("Impossible : informations personnelles manquantes.");
+                        } else {
+                            System.out.println("Clôture de commande à implémenter...");
+                        }
+                        pause();
+                        break;
+
                     case 5:
                         if (!Objects.equals(id_client, "")) {
                             questionDonnees();
@@ -425,23 +447,29 @@
                             connectionDuClient();
                         }
                         break;
+
                     case 6:
                         if (!id_client.isEmpty()) {
                             id_client = "";
+                            mail = "";
+                            compteIncomplet = true;
+                            System.out.println("Vous êtes maintenant déconnecté.");
                         }
-                        menuPrincipal();
+                        pause();
                         break;
-    
+
                     case 0:
                         System.out.println("Au revoir !");
-                        break;
+                        return;  // <-- ON QUITTE PROPREMENT
+
                     default:
                         System.out.println("Choix invalide !");
                         pause();
                 }
             }
         }
-    
+
+
         // ============================
         // SOUS-MENU : CATALOGUE
         // ============================
@@ -762,20 +790,45 @@
             clearScreen();
             LocalDate dateCourante = LocalDate.now();
             LocalDate limite = dateCourante.plusDays(MARGE_TOLERE_EXPIRATION);
-    
-            System.out.println("Nous sommes le : " + dateCourante);
+
+            System.out.println("===== ALERTES DE PÉREMPTION =====");
+            System.out.println("Nous sommes le : " + dateCourante + "\n");
+
+            ArrayList<String[]> liste = SystemeEpicerie.getProduitBientotPerime();
+            nombreAlertePeremption = SystemeEpicerie.getNombreAlertePeremption();
+
             if (nombreAlertePeremption == 0) {
-                System.out.println(" Aucun produit n'est bientôt en promotion...");
+                System.out.println("Aucun produit n'est bientôt périmé.\n");
             } else {
-                ArrayList<String[]> produitBientotPerime = SystemeEpicerie.getProduitBientotPerime();
 
+                System.out.println("Produits bientôt périmés dans les " + MARGE_TOLERE_EXPIRATION + " jours :\n");
 
+                System.out.printf("%-30s %-10s %-15s %-10s\n",
+                        "Produit", "Quantité", "Jours restants", "Type");
+                System.out.println("-----------------------------------------------------------------------");
+
+                for (String[] prod : liste) {
+                    String nom = prod[0];
+                    String quantite = prod[1];
+                    String jours = prod[2];
+                    String typeDate = prod[3];
+
+                    System.out.printf("%-30s %-10s %-15s %-10s\n",
+                            nom,
+                            quantite,
+                            jours,
+                            typeDate);
+                }
+
+                System.out.println("-----------------------------------------------------------------------");
+                System.out.println("Total : " + nombreAlertePeremption + " lots concernés.\n");
             }
-    
+
             pause();
             menuPrincipal();
         }
-    
+
+
         // ============================
         // ANONYMISATION
         // ============================
