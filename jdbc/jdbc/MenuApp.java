@@ -37,7 +37,7 @@
         public static String yesNoQuestion() {
             String reponse = scanner.nextLine().trim();
             while (!(Objects.equals(reponse, "y") || Objects.equals(reponse, "n") || reponse.isEmpty())) {
-                System.out.println("reponse incorrecte ! ");
+                System.out.println("reponse incorrecte ! Répondez <y> ou <n>. ");
                 reponse = scanner.nextLine().trim();
             }
             return reponse;
@@ -46,7 +46,7 @@
         public static String Question() {
             String reponse = scanner.nextLine().trim();
             while (reponse.isEmpty()) {
-                System.out.println("reponse incorrecte ! ");
+                System.out.println("reponse incorrecte ! Répondez <y> ou <n>. ");
                 reponse = scanner.nextLine().trim();
             }
             return reponse;
@@ -373,29 +373,7 @@
         public static void menuPrincipal() {
             int choix = -1;
             clearScreen();
-            LocalDate dateCourante = LocalDate.now();
-            LocalDate limite = dateCourante.plusDays(MARGE_TOLERE_EXPIRATION);
-    
-            try {
-                OracleDB db = new OracleDB();
-                String sql = "SELECT COUNT(*) FROM Lot_Produit WHERE date_peremption <= ?";
-    
-                PreparedStatement pstmt = db.getConnection().prepareStatement(sql);
-                pstmt.setDate(1, java.sql.Date.valueOf(limite));
-    
-                ResultSet rs = pstmt.executeQuery();
-                rs.next();
-                nombreAlertePeremption = rs.getInt(1);
-    
-                rs.close();
-                pstmt.close();
-                db.close();
-            } catch (Exception e) {
-                e.printStackTrace();
-                pause();
-                return;
-            }
-
+                nombreAlertePeremption = SystemeEpicerie.getNombreAlertePeremption();
             while (choix != 0) {
                 System.out.println("===== MENU PRINCIPAL =====");
                 System.out.println("1. Consulter nos catalogues");
@@ -786,29 +764,12 @@
             LocalDate limite = dateCourante.plusDays(MARGE_TOLERE_EXPIRATION);
     
             System.out.println("Nous sommes le : " + dateCourante);
-            System.out.println("Y a t-il des produits bientôt indisponibles ?");
             if (nombreAlertePeremption == 0) {
-                System.out.println("Non, aucun produit n'est bientôt indisponible...");
+                System.out.println(" Aucun produit n'est bientôt en promotion...");
             } else {
-                try {
-                    OracleDB db = new OracleDB();
-                    Statement stmt = db.getConnection().createStatement();
-    
-                    String sql = "SELECT * FROM Lot_Produit WHERE date_peremption <= " + limite;
-    
-                    ResultSet rs = stmt.executeQuery(sql);
-    
-                    rs.close();
-                    stmt.close();
-    
-                    System.out.println("Oui, voici les produits bientôt indisponibles !");
-                    db.runQuery(sql);
-                    db.close();
-                } catch (SQLException e) {
-                    e.printStackTrace();
-                    pause();
-                    menuPrincipal();
-                }
+                ArrayList<String[]> produitBientotPerime = SystemeEpicerie.getProduitBientotPerime();
+
+
             }
     
             pause();
