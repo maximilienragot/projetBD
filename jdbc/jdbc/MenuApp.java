@@ -187,9 +187,8 @@
 
             System.out.print("Entrez votre numéro de téléphone : ");
             String numTel = scanner.nextLine().trim();
-
+            OracleDB db = new OracleDB();
             try {
-                OracleDB db = new OracleDB();
                 Statement stmt = db.getConnection().createStatement();
 
                 // 1) INSERT dans Client
@@ -256,8 +255,12 @@
                 compteIncomplet = false;
 
                 System.out.println("Votre compte complet a été créé avec succès !");
-
+                db.getConnection().commit();
             } catch (Exception e) {
+                try {
+                    db.getConnection().rollback();
+                } catch (Exception e1) {}
+
                 System.out.println("Erreur lors de la création du compte :");
                 e.printStackTrace();
             }
@@ -266,9 +269,8 @@
     
         private static int genererNouvelIdClient() {
             String sql = "SELECT NVL(MAX(IdClient), 0) + 1 AS newId FROM Client";
-    
+            OracleDB db = new OracleDB();
             try {
-                OracleDB db = new OracleDB();
                 Statement stmt = db.getConnection().createStatement();
                 ResultSet rs = stmt.executeQuery(sql);
     
@@ -276,13 +278,18 @@
                 int newId = rs.getInt("newId");
     
                 stmt.close();
-                db.close();
+                db.getConnection().commit();
                 return newId;
-    
             } catch (Exception e) {
+                try {
+                    db.getConnection().rollback();
+                } catch (Exception e1) {}
                 e.printStackTrace();
                 return -1;
+            } finally {
+                db.close();
             }
+
         }
     
         // ------------------- 5) Ajouter un client -------------------
@@ -297,20 +304,20 @@
             id_client = String.valueOf(newId);
 
             String sqlClient = "INSERT INTO Client (IdClient) VALUES (" + id_client + ")";
-
+            OracleDB db = new OracleDB();
             try {
-                OracleDB db = new OracleDB();
                 Statement stmt = db.getConnection().createStatement();
                 stmt.executeUpdate(sqlClient);
 
                 stmt.close();
-                db.close();
 
                 System.out.println("Client ajouté (IdClient = " + id_client + ")");
 
             } catch (Exception e) {
                 System.out.println("Erreur lors de l'insertion du client :");
                 e.printStackTrace();
+            } finally {
+                db.close();
             }
         }
 
@@ -321,20 +328,21 @@
     
             String sql = "INSERT INTO Adresse_Livraison (AdresseLiv, IdClient) "
                     + "VALUES ('" + mail_temp + "', " + idClient + ")";
-    
+            OracleDB db = new OracleDB();
             try {
-                OracleDB db = new OracleDB();
                 Statement stmt = db.getConnection().createStatement();
                 stmt.executeUpdate(sql);
     
                 stmt.close();
-                db.close();
-    
+
                 System.out.println("Adresse de livraison ajoutée pour le client.");
     
             } catch (Exception e) {
                 System.out.println("Erreur lors de l'ajout de l'adresse :");
                 e.printStackTrace();
+            } finally {
+                db.close();
+
             }
         }
     
@@ -347,21 +355,25 @@
     
         private static boolean mailExisteDansBDD(String mail_temp) {
             String sql = "SELECT 1 FROM Adresse_Livraison WHERE AdresseLiv = '" + mail_temp + "'";
-    
+            OracleDB db = new OracleDB();
             try {
-                OracleDB db = new OracleDB();
                 Statement stmt = db.getConnection().createStatement();
                 ResultSet rs = stmt.executeQuery(sql);
     
                 boolean existe = rs.next();
     
                 stmt.close();
-                db.close();
+
+                db.getConnection().commit();
                 return existe;
-    
             } catch (Exception e) {
+                try {
+                    db.getConnection().rollback();
+                } catch (Exception e1) {}
                 e.printStackTrace();
                 return false;
+            } finally {
+                db.close();
             }
         }
     
@@ -864,9 +876,8 @@
 
 
         private static void anonymiserClient() {
-
+            OracleDB db = new OracleDB();
             try {
-                OracleDB db = new OracleDB();
                 Statement stmt = db.getConnection().createStatement();
 
                 // Supprime les données personnelles
@@ -887,10 +898,16 @@
                 id_client = "";
 
                 System.out.println("Vos données personnelles ont été anonymisées.");
-
+                db.getConnection().commit();
             } catch (Exception e) {
+                try {
+                    db.getConnection().rollback();
+                } catch (SQLException e1) {}
                 System.out.println("Erreur lors de l'anonymisation :");
                 e.printStackTrace();
+            }
+            finally {
+                db.close();
             }
         }
 
@@ -923,9 +940,8 @@
             String sql = "SELECT 1 FROM Adresse_Livraison WHERE AdresseLiv = '" + addr
                     + "' AND IdClient = " + id_client;
 
-
+            OracleDB db = new OracleDB();
             try {
-                OracleDB db = new OracleDB();
                 Statement stmt = db.getConnection().createStatement();
                 ResultSet rs = stmt.executeQuery(sql);
 
@@ -933,14 +949,19 @@
 
                 rs.close();
                 stmt.close();
-                db.close();
 
+                db.getConnection().commit();
                 return exists;
 
             } catch (Exception e) {
+                try {
+                    db.getConnection().rollback();
+                } catch (SQLException e1) {}
                 System.out.println("Erreur lors de la vérification d'adresse :");
                 e.printStackTrace();
                 return true; // Par sécurité
+            } finally {
+                db.close();
             }
         }
     }
