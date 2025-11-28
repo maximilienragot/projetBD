@@ -7,8 +7,8 @@ import java.util.List;
 public class OracleDB {
 
     private static final String URL = "jdbc:oracle:thin:@oracle1.ensimag.fr:1521:oracle1";
-    private static final String USER = "elhadarm";
-    private static final String PASS = "elhadarm";
+    private static final String USER = "touatia";
+    private static final String PASS = "touatia";
 
     private Connection conn;
     public Connection getConnection() {
