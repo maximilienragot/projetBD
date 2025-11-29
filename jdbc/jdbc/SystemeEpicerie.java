@@ -10,19 +10,10 @@ public class SystemeEpicerie {
     private static final int MARGE_TOLERE_EXPIRATION = 7;
     private static final double REDUCTION = 0.5;
 
+    // Chaque entrée : [nomProduit, qte, joursRestants, typeDate]
     private static final ArrayList<String[]> produitBientotPerime = new ArrayList<>();
+    private static final ArrayList<String> lotsDejaReduits = new ArrayList<>();
     private static int nombreAlertePeremption;
-
-
-    public static void main(String[] args) {
-
-        while (true) {
-            mettreAJourProduitsBientotPerimes();
-            try {
-                Thread.sleep(30000); // 30 secondes
-            } catch (InterruptedException ignored) {}
-        }
-    }
 
     // =====================================================
     //   GENERER NOUVELLE PERTE
@@ -33,8 +24,8 @@ public class SystemeEpicerie {
 
         Statement stmt = db.getConnection().createStatement();
         ResultSet rs = stmt.executeQuery(sql);
-
         rs.next();
+
         int id = rs.getInt("newId");
 
         rs.close();
@@ -42,8 +33,6 @@ public class SystemeEpicerie {
 
         return id;
     }
-
-
 
     // =====================================================
     //  MISE À JOUR PRINCIPALE
@@ -59,13 +48,14 @@ public class SystemeEpicerie {
         OracleDB db = new OracleDB();
 
         try {
-            // -----------------------------------------
-            // 1️⃣ LOTS BIENTÔT PÉRIMÉS
-            // -----------------------------------------
 
+            // =====================================================
+            // 1️⃣ Sélection des lots bientôt périmés
+            // =====================================================
             String sqlBientot = """
-                
-                    SELECT lp.date_peremption,
+                SELECT lp.IdArticle,
+                       lp.date_reception,
+                       lp.date_peremption,
                        lp.type_date,
                        lp.Qte_dispo,
                        p.nom_produit,
@@ -79,15 +69,20 @@ public class SystemeEpicerie {
             PreparedStatement pstmt = db.getConnection().prepareStatement(sqlBientot);
             pstmt.setDate(1, java.sql.Date.valueOf(limite));
 
-            ResultSet rsMajBientotPerime = pstmt.executeQuery();
+            ResultSet rs = pstmt.executeQuery();
 
-            while (rsMajBientotPerime.next()) {
+            while (rs.next()) {
 
-                String nom = rsMajBientotPerime.getString("nom_produit");
-                int qte = rsMajBientotPerime.getInt("Qte_dispo");
-                String typeDate = rsMajBientotPerime.getString("type_date");
+                int idArticle = rs.getInt("IdArticle");
+                LocalDate dateReception = rs.getDate("date_reception").toLocalDate();
+                LocalDate datePeremption = rs.getDate("date_peremption").toLocalDate();
 
-                LocalDate datePeremption = rsMajBientotPerime.getDate("date_peremption").toLocalDate();
+                // ID unique du lot
+                String lotKey = idArticle + "-" + dateReception;
+
+                String nom = rs.getString("nom_produit");
+                int qte = rs.getInt("Qte_dispo");
+                String typeDate = rs.getString("type_date");
                 long joursRestants = ChronoUnit.DAYS.between(aujourdHui, datePeremption);
 
                 produitBientotPerime.add(new String[]{
@@ -98,33 +93,32 @@ public class SystemeEpicerie {
                 });
 
                 nombreAlertePeremption++;
+
+                // =====================================================
+                // 2️⃣ Réduction appliquée UNE SEULE FOIS
+                // =====================================================
+                if (!lotsDejaReduits.contains(lotKey)) {
+
+                    reduirePrixArticle(db, idArticle);
+                    lotsDejaReduits.add(lotKey);
+                }
             }
 
-            rsMajBientotPerime.close();
+            rs.close();
             pstmt.close();
-
-            // -----------------------------------------
-            // 2️⃣ RÉDUCTION DES PRIX / REDUCTION
-            // -----------------------------------------
-            reduirePrixLotsBientotPerimes(db,
-
-        limite);
             db.getConnection().commit();
+
         } catch (Exception e) {
-            try {
-                db.getConnection().rollback();
-            } catch (SQLException e1) {
-            }
+            try { db.getConnection().rollback(); } catch (SQLException ignored) {}
             e.printStackTrace();
         }
-    try {
-        Statement stmt = db.getConnection().createStatement();
 
-        // -----------------------------------------
-        // 3️⃣ LOTS DÉJÀ PÉRIMÉS → PERTE
-        // -----------------------------------------
+        // =====================================================
+        // 3️⃣ Lots déjà périmés → PERTE + suppression
+        // =====================================================
+        try {
 
-        String sqlPerimes = """
+            String sqlPerimes = """
                 SELECT lp.IdArticle,
                        lp.date_reception,
                        lp.Qte_dispo,
@@ -134,86 +128,75 @@ public class SystemeEpicerie {
                 WHERE lp.date_peremption < CURRENT_DATE
                 """;
 
-        ResultSet rsMajPerime = stmt.executeQuery(sqlPerimes);
+            Statement stmt = db.getConnection().createStatement();
+            ResultSet rsMajPerime = stmt.executeQuery(sqlPerimes);
 
-        while (rsMajPerime.next()) {
+            while (rsMajPerime.next()) {
 
-            int idArticle = rsMajPerime.getInt("IdArticle");
-            Date dateReceptionSQL = rsMajPerime.getDate("date_reception");
-            LocalDate dateReception = dateReceptionSQL.toLocalDate();
-            int qte = rsMajPerime.getInt("Qte_dispo");
-            String unite = rsMajPerime.getString("Unite");
+                int idArticle = rsMajPerime.getInt("IdArticle");
+                LocalDate dateReception = rsMajPerime.getDate("date_reception").toLocalDate();
+                int qte = rsMajPerime.getInt("Qte_dispo");
+                String unite = rsMajPerime.getString("Unite");
 
-            int idPerte = genererNouvellePerteId(db);
+                int idPerte = genererNouvellePerteId(db);
 
-            String insertPerte = """
+                String insertPerte = """
                     INSERT INTO Perte(IdPerte, datePerte, naturePerte, typePerte, qtePerdue, unite)
                     VALUES (?, CURRENT_DATE, 'Peremption', 'Article', ?, ?)
                     """;
 
-            PreparedStatement psPerte = db.getConnection().prepareStatement(insertPerte);
+                PreparedStatement psPerte = db.getConnection().prepareStatement(insertPerte);
+                psPerte.setInt(1, idPerte);
+                psPerte.setInt(2, qte);
+                psPerte.setString(3, unite);
+                psPerte.executeUpdate();
+                psPerte.close();
 
-            psPerte.setInt(1, idPerte);
-            psPerte.setInt(2, qte);
-            psPerte.setString(3, unite);
-            psPerte.executeUpdate();
-
-            psPerte.close();
-
-            // supprimer le lot
-            String deleteLot = """
+                // supprimer le lot
+                String deleteLot = """
                     DELETE FROM Lot_Produit
                     WHERE IdArticle = ? AND date_reception = ?
                     """;
 
-            PreparedStatement psDel = db.getConnection().prepareStatement(deleteLot);
-            psDel.setInt(1, idArticle);
-            psDel.setDate(2, java.sql.Date.valueOf(dateReception));
-            psDel.executeUpdate();
-            psDel.close();
-        }
+                PreparedStatement psDel = db.getConnection().prepareStatement(deleteLot);
+                psDel.setInt(1, idArticle);
+                psDel.setDate(2, java.sql.Date.valueOf(dateReception));
+                psDel.executeUpdate();
+                psDel.close();
+            }
 
-        rsMajPerime.close();
-        stmt.close();
+            rsMajPerime.close();
+            stmt.close();
+            db.getConnection().commit();
 
-        db.getConnection().commit();
         } catch (Exception e) {
-            try {
-                db.getConnection().rollback();
-            } catch (SQLException e1) {}
+            try { db.getConnection().rollback(); } catch (SQLException ignored) {}
             e.printStackTrace();
         }
-    db.close();
+
+        db.close();
     }
 
-
-
     // =====================================================
-    //  RÉDUCTION DES PRIX TTC
+    //  RÉDUCTION UNIQUE SUR UN ARTICLE
     // =====================================================
-    private static void reduirePrixLotsBientotPerimes(OracleDB db, LocalDate limite) throws SQLException {
+    private static void reduirePrixArticle(OracleDB db, int idArticle) throws SQLException {
 
         String sql = """
-            UPDATE Article ar
-            SET ar.prixTTC = ar.prixTTC * ?
-            WHERE ar.IdArticle IN (
-                SELECT DISTINCT lp.IdArticle
-                FROM Lot_Produit lp
-                WHERE lp.date_peremption <= ?
-            )
+            UPDATE Article
+            SET prixTTC = prixTTC * ?
+            WHERE IdArticle = ?
             """;
 
         PreparedStatement ps = db.getConnection().prepareStatement(sql);
-
         ps.setDouble(1, REDUCTION);
-        ps.setDate(2, java.sql.Date.valueOf(limite));
-
+        ps.setInt(2, idArticle);
         ps.executeUpdate();
         ps.close();
     }
 
     // =====================================================
-    //   GETTERS
+    // GETTERS
     // =====================================================
     public static ArrayList<String[]> getProduitBientotPerime() {
         return produitBientotPerime;
@@ -222,5 +205,4 @@ public class SystemeEpicerie {
     public static int getNombreAlertePeremption() {
         return nombreAlertePeremption;
     }
-
 }
