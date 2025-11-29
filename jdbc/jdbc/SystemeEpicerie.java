@@ -15,6 +15,21 @@ public class SystemeEpicerie {
     private static final ArrayList<String> lotsDejaReduits = new ArrayList<>();
     private static int nombreAlertePeremption;
 
+
+    public static void main(String[] args) {
+
+        while (true) {
+            mettreAJourProduitsBientotPerimes();
+            try {
+                Thread.sleep(30_000); // 30 secondes
+            } catch (InterruptedException ignored) {
+                return;
+            }
+        }
+    }
+
+
+
     // =====================================================
     //   GENERER NOUVELLE PERTE
     // =====================================================

@@ -881,6 +881,8 @@
                 return exists;
         }
 
+
+
         public static void menuModification() {
 
             while (true) {
@@ -935,9 +937,6 @@
                 }
             }
         }
-
-
-
 
         public static void modProduit() {
             clearScreen();
@@ -1407,6 +1406,11 @@
             if (reponse.equals("y")) {
                 ajoutLotProduit();
             }
+            System.out.println("Voulez vous modifier la quantité d'un lot produit ? (y/n)");
+            String modrep = yesNoQuestion();
+            if (modrep.equals("y")) {
+                modificationLotProduit();
+            }
             System.out.println("Voulez vous supprimer un article lot  de votre liste ? (y/n)");
             String suppProd = yesNoQuestion();
             if (suppProd.equals("y")) {
@@ -1427,7 +1431,7 @@
                 int idArticle = Integer.parseInt(Question());
 
                 System.out.print("Quantité en stock : ");
-                int qte = Integer.parseInt(Question());
+                double qte = Double.parseDouble(Question());
 
                 System.out.print("Date de péremption (YYYY-MM-DD) : ");
                 String date = Question();
@@ -1439,7 +1443,7 @@
 
                 PreparedStatement ps = db.getConnection().prepareStatement(sql);
                 ps.setInt(1, idArticle);
-                ps.setInt(2, qte);
+                ps.setDouble(2, qte);
                 ps.setString(3, date);
 
                 ps.executeUpdate();
@@ -1455,6 +1459,123 @@
 
             db.close();
         }
+
+        public static void modificationLotProduit() {
+            clearScreen();
+            OracleDB db = new OracleDB();
+
+            System.out.println("Voulez-vous modifier la quantité d'un lot de produit ? (y/n):");
+            String reponse = yesNoQuestion();
+            if (reponse.equals("n")) {
+                db.close();
+                return;
+            }
+
+            try {
+                // Afficher tous les lots
+                System.out.println("Voici les lots de produits :");
+                db.runQuery("SELECT IdArticle, date_reception, Qte_dispo FROM Lot_Produit");
+
+                // ========== CHOIX ID ARTICLE ==========
+                String idArticleStr = "";
+                while (idArticleStr.isEmpty()) {
+                    System.out.println("\nEntrez l'identifiant de l'article concerné :");
+                    idArticleStr = Question();
+
+                    String sqlVerifArticle = """
+                SELECT DISTINCT IdArticle FROM Lot_Produit WHERE IdArticle = ?
+            """;
+
+                    PreparedStatement ps = db.getConnection().prepareStatement(sqlVerifArticle);
+                    ps.setInt(1, Integer.parseInt(idArticleStr));
+                    ResultSet rs = ps.executeQuery();
+
+                    if (!rs.next()) {
+                        System.out.println(" Cet IdArticle ne correspond à aucun lot.");
+                        idArticleStr = "";
+                    }
+
+                    rs.close();
+                    ps.close();
+                }
+
+                int idArticle = Integer.parseInt(idArticleStr);
+
+                // ========== CHOIX DATE RECEPTION ==========
+                String dateReceptionStr = "";
+                while (dateReceptionStr.isEmpty()) {
+                    System.out.println("Entrez la date de réception du lot (format DD-MM-YYYY) :");
+                    dateReceptionStr = Question();
+
+                    String sqlVerifDate = """
+                SELECT * FROM Lot_Produit
+                WHERE IdArticle = ? 
+                AND date_reception = TO_DATE(?, 'DD-MM-YYYY')
+            """;
+
+                    PreparedStatement ps = db.getConnection().prepareStatement(sqlVerifDate);
+                    ps.setInt(1, idArticle);
+                    ps.setString(2, dateReceptionStr);
+                    ResultSet rs = ps.executeQuery();
+
+                    if (!rs.next()) {
+                        System.out.println(" Aucun lot ne correspond à cette date pour cet article.");
+                        dateReceptionStr = "";
+                    }
+
+                    rs.close();
+                    ps.close();
+                }
+
+                // ========== NOUVELLE QUANTITÉ (FLOAT) ==========
+                String nouvelleQteStr = "";
+                double nouvelleQte = 0;
+
+                while (nouvelleQteStr.isEmpty()) {
+                    System.out.println("Entrez la nouvelle quantité disponible (nombre > 0, décimal accepté) :");
+                    nouvelleQteStr = Question();
+
+                    try {
+                        nouvelleQte = Double.parseDouble(nouvelleQteStr);
+                        if (nouvelleQte <= 0) {
+                            System.out.println(" La quantité doit être un nombre positif.");
+                            nouvelleQteStr = "";
+                        }
+                    } catch (Exception e) {
+                        System.out.println(" Ce n'est pas un nombre valide.");
+                        nouvelleQteStr = "";
+                    }
+                }
+
+                // ========== MISE À JOUR ==========
+                String sqlUpdate = """
+            UPDATE Lot_Produit
+            SET Qte_dispo = ?
+            WHERE IdArticle = ?
+              AND date_reception = TO_DATE(?, 'DD-MM-YYYY')
+        """;
+
+                PreparedStatement psUpdate = db.getConnection().prepareStatement(sqlUpdate);
+                psUpdate.setDouble(1, nouvelleQte);
+                psUpdate.setInt(2, idArticle);
+                psUpdate.setString(3, dateReceptionStr);
+
+                psUpdate.executeUpdate();
+                psUpdate.close();
+
+                db.getConnection().commit();
+                System.out.println("✔ Quantité du lot modifiée avec succès !");
+
+            } catch (Exception e) {
+                try { db.getConnection().rollback(); } catch (Exception ignored) {}
+                System.out.println(" ERREUR : la quantité du lot n'a pas été modifiée.");
+                e.printStackTrace();
+            }
+
+            db.close();
+            pause();
+        }
+
 
         public static void suppLotProduit() {
             clearScreen();
@@ -1787,13 +1908,6 @@
 
             db.close();
         }
-
-
-
-
-
-
-
 
 
     }
