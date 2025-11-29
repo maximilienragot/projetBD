@@ -1576,7 +1576,6 @@
             pause();
         }
 
-
         public static void suppLotProduit() {
             clearScreen();
             OracleDB db = new OracleDB();
@@ -1908,9 +1907,4 @@
 
             db.close();
         }
-
-
     }
-
-
-
