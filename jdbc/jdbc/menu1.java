@@ -9,7 +9,6 @@
     import java.util.Scanner;
     
     import jdbc.OracleDB.SimpleQuery;
-    import oracle.jdbc.internal.OraclePreparedStatement;
 
     import java.util.List;
 
@@ -448,7 +447,7 @@
                 switch (choix) {
                     case 1:
                         clearScreen();
-                        db.runQuery(requetes.getFirst());
+                        db.runQuery(requetes.get(0));
                         db.close();
                         pause();
                         break;
