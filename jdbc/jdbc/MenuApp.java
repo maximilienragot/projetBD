@@ -2022,6 +2022,21 @@ public class MenuApp {
         }
     }
 
+    public static int demanderEntier(String message) {
+        while (true) {
+            System.out.print(message);
+            String rep = scanner.nextLine().trim();
+
+            try {
+                return Integer.parseInt(rep);
+            }
+            catch (NumberFormatException e) {
+                System.out.println(" Veuillez entrer un nombre valide.");
+            }
+        }
+    }
+
+
 
     public static void menuModification() {
 
@@ -2190,53 +2205,163 @@ public class MenuApp {
     public static void suppProduit() {
         clearScreen();
         OracleDB db = new OracleDB();
+
         try {
-            db.getConnection().setAutoCommit(false);
-            String sql = """
-                    SELECT * FROM Produit
-                    """;
-            db.runQuery(sql);
-            String idProduit = "";
-            while ( idProduit.equals("")) {
-                idProduit = demanderValeurNonVide("Entrer l'identifiant du produit à enlever.");
-                sql = """
-                    SELECT * FROM Produit WHERE idProduit = ?
-                    """;
-                PreparedStatement ps1 = db.getConnection().prepareStatement(sql);
-                ps1.setString(1, idProduit);
-                ResultSet rs1 = ps1.executeQuery();
-                if (!rs1.next()) {
-                    String prod = """
-                        SELECT * FROM Produit
-                        """;
-                    db.runQuery(prod);
-                    System.out.println("Attention, cet identifiant n'existe pas.");
-                    String suppProduit = demanderValeurNonVide("Voulez vous continuez a supprimer un produit ? (y/n)");
-                    if (suppProduit.equals("n")) {
-                        return;
-                    } else {
-                        System.out.println("Veuillez entrez un identifiant de produit existant.");
-                        idProduit = "";
-                    }
+            Connection conn = db.getConnection();
+            conn.setAutoCommit(false);
+
+            db.runQuery("SELECT IdProduit, nom_Produit FROM Produit");
+
+            int idProduit = demanderEntier("Id du produit à supprimer : ");
+
+            // Vérifier existence produit
+            PreparedStatement chkProd = conn.prepareStatement(
+                    "SELECT 1 FROM Produit WHERE IdProduit = ?"
+            );
+            chkProd.setInt(1, idProduit);
+            ResultSet rs = chkProd.executeQuery();
+
+            if (!rs.next()) {
+                System.out.println("Ce produit n'existe pas.");
+                rs.close();
+                chkProd.close();
+                db.close();
+                pause();
+                return;
+            }
+            rs.close();
+            chkProd.close();
+
+            // Vérifier si des articles de ce produit apparaissent dans des commandes
+            PreparedStatement chkCmd = conn.prepareStatement("""
+                SELECT 1
+                FROM Ligne_Commande
+                WHERE IdArticle IN (
+                    SELECT IdArticle
+                    FROM Art_Pdt
+                    WHERE IdProduit = ?
+                )
+            """);
+            chkCmd.setInt(1, idProduit);
+            ResultSet rcmd = chkCmd.executeQuery();
+
+            if (rcmd.next()) {
+                System.out.println("Impossible de supprimer ce produit : au moins un article associé apparaît dans des commandes.");
+                rcmd.close();
+                chkCmd.close();
+                db.close();
+                pause();
+                return;
+            }
+            rcmd.close();
+            chkCmd.close();
+
+            // Supprimer Est_Disponible (optionnel car ON DELETE CASCADE, mais on le fait clairement)
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "DELETE FROM Est_Disponible WHERE IdProduit = ?"
+            )) {
+                ps.setInt(1, idProduit);
+                ps.executeUpdate();
+            }
+
+            // Récupérer les articles liés à ce produit
+            PreparedStatement getArt = conn.prepareStatement(
+                    "SELECT IdArticle FROM Art_Pdt WHERE IdProduit = ?"
+            );
+            getArt.setInt(1, idProduit);
+            ResultSet rArt = getArt.executeQuery();
+
+            ArrayList<Integer> articles = new ArrayList<>();
+            while (rArt.next()) {
+                articles.add(rArt.getInt(1));
+            }
+            rArt.close();
+            getArt.close();
+
+            // Pour chaque article lié : supprimer toute la partie interne
+            for (int idArt : articles) {
+
+                // Subit
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "DELETE FROM Subit WHERE IdArticle = ?"
+                )) {
+                    ps.setInt(1, idArt);
+                    ps.executeUpdate();
+                }
+
+                // Donne_Lieu_A
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "DELETE FROM Donne_Lieu_A WHERE IdArticle = ?"
+                )) {
+                    ps.setInt(1, idArt);
+                    ps.executeUpdate();
+                }
+
+                // Lot_Produit
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "DELETE FROM Lot_Produit WHERE IdArticle = ?"
+                )) {
+                    ps.setInt(1, idArt);
+                    ps.executeUpdate();
+                }
+
+                // Lot_Contenant (au cas où, même si normalement ce sont les contenants)
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "DELETE FROM Lot_Contenant WHERE IdArticle = ?"
+                )) {
+                    ps.setInt(1, idArt);
+                    ps.executeUpdate();
+                }
+
+                // Contenant
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "DELETE FROM Contenant WHERE IdArticle = ?"
+                )) {
+                    ps.setInt(1, idArt);
+                    ps.executeUpdate();
+                }
+
+                // Art_Pdt
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "DELETE FROM Art_Pdt WHERE IdArticle = ?"
+                )) {
+                    ps.setInt(1, idArt);
+                    ps.executeUpdate();
+                }
+
+                // Article
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "DELETE FROM Article WHERE IdArticle = ?"
+                )) {
+                    ps.setInt(1, idArt);
+                    ps.executeUpdate();
                 }
             }
-            sql = """ 
-                DELETE FROM Produit
-                WHERE idProduit = ?
-                """;
-            PreparedStatement ps = db.getConnection().prepareStatement(sql);
-            ps.setString(1, idProduit);
-            ps.execute();
-            db.getConnection().commit();
-        } catch (SQLException se) {
-            System.out.println("Il y a un problème. Le produit n'a pas été supprimé de la liste.");
+
+            // Enfin, suppression du produit lui-même
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "DELETE FROM Produit WHERE IdProduit = ?"
+            )) {
+                ps.setInt(1, idProduit);
+                ps.executeUpdate();
+            }
+
+            conn.commit();
+            System.out.println("Produit supprimé.");
+
+        } catch (SQLException e) {
+            System.out.println("Erreur pendant la suppression du produit : " + e.getMessage());
             try {
                 db.getConnection().rollback();
+            } catch (SQLException ignored) {
             }
-            catch (SQLException se2) {}
         }
+
         db.close();
+        pause();
     }
+
+
 
     public static void modProd() {
         clearScreen();
@@ -2330,13 +2455,14 @@ public class MenuApp {
         try {
             Connection conn = db.getConnection();
             conn.setAutoCommit(false);
-            db.runQuery("SELECT * FROM Producteur");
+
+            db.runQuery("SELECT email_producteur, nom FROM Producteur");
 
             String mailProd = "";
 
-            // Boucle pour demander un email existant
+            // Boucle pour demander un email existant ou abandonner
             while (mailProd.isEmpty()) {
-                mailProd = demanderValeurNonVide("Entrer le mail du producteur à enlever.");
+                mailProd = demanderValeurNonVide("Entrer le mail du producteur à enlever : ");
 
                 String sqlCheck = "SELECT 1 FROM Producteur WHERE email_producteur = ?";
                 PreparedStatement chk = conn.prepareStatement(sqlCheck);
@@ -2345,86 +2471,162 @@ public class MenuApp {
 
                 if (!rs.next()) {
                     System.out.println("Ce producteur n'existe pas.");
+                    rs.close();
+                    chk.close();
+
+                    System.out.println("Voulez-vous réessayer ? (y/n)");
+                    if (yesNoQuestion().equals("n")) {
+                        db.close();
+                        return;
+                    }
                     mailProd = "";
-                    continue;
+                } else {
+                    rs.close();
+                    chk.close();
                 }
             }
 
-            // -------------------------------
-            // Suppressions dans le BON ordre
-            // -------------------------------
+            // Récupérer tous les articles liés à ce producteur via ses produits
+            PreparedStatement getArt = conn.prepareStatement("""
+                SELECT a.IdArticle
+                FROM Article a
+                JOIN Art_Pdt ap ON ap.IdArticle = a.IdArticle
+                JOIN Produit p ON p.IdProduit = ap.IdProduit
+                WHERE p.email_producteur = ?
+            """);
+            getArt.setString(1, mailProd);
+            ResultSet rArt = getArt.executeQuery();
 
-            // 1. Art_Pdt
-            try (PreparedStatement ps = conn.prepareStatement("""
-            DELETE FROM Art_Pdt 
-            WHERE IdProduit IN (
-                SELECT IdProduit FROM Produit WHERE email_producteur = ?
-            )
-        """)) {
-                ps.setString(1, mailProd);
-                ps.executeUpdate();
+            ArrayList<Integer> articles = new ArrayList<>();
+            while (rArt.next()) {
+                articles.add(rArt.getInt(1));
             }
+            rArt.close();
+            getArt.close();
 
-            // 2. Est_Disponible
-            try (PreparedStatement ps = conn.prepareStatement("""
-            DELETE FROM Est_Disponible 
-            WHERE IdProduit IN (
-                SELECT IdProduit FROM Produit WHERE email_producteur = ?
-            )
-        """)) {
-                ps.setString(1, mailProd);
-                ps.executeUpdate();
+            // Vérifier si au moins un de ces articles est utilisé dans des commandes
+            PreparedStatement chkCmd = conn.prepareStatement(
+                    "SELECT 1 FROM Ligne_Commande WHERE IdArticle = ?"
+            );
+
+            for (int idArt : articles) {
+                chkCmd.setInt(1, idArt);
+                ResultSet rc = chkCmd.executeQuery();
+                if (rc.next()) {
+                    System.out.println("Impossible de supprimer ce producteur : au moins un de ses articles apparaît dans des commandes.");
+                    rc.close();
+                    chkCmd.close();
+                    db.close();
+                    pause();
+                    return;
+                }
+                rc.close();
             }
+            chkCmd.close();
 
-            // 3. Articles via Art_Pdt
+            // Supprimer Est_Disponible pour ses produits
             try (PreparedStatement ps = conn.prepareStatement("""
-            DELETE FROM Article
-            WHERE IdArticle IN (
-                SELECT IdArticle FROM Art_Pdt
+                DELETE FROM Est_Disponible
                 WHERE IdProduit IN (
                     SELECT IdProduit FROM Produit WHERE email_producteur = ?
                 )
-            )
-        """)) {
+            """)) {
                 ps.setString(1, mailProd);
                 ps.executeUpdate();
             }
 
-            // 4. Produits
-            try (PreparedStatement ps = conn.prepareStatement("""
-            DELETE FROM Produit WHERE email_producteur = ?
-        """)) {
+            // Supprimer tout ce qui est interne pour chaque article
+            for (int idArt : articles) {
+
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "DELETE FROM Subit WHERE IdArticle = ?"
+                )) {
+                    ps.setInt(1, idArt);
+                    ps.executeUpdate();
+                }
+
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "DELETE FROM Donne_Lieu_A WHERE IdArticle = ?"
+                )) {
+                    ps.setInt(1, idArt);
+                    ps.executeUpdate();
+                }
+
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "DELETE FROM Lot_Produit WHERE IdArticle = ?"
+                )) {
+                    ps.setInt(1, idArt);
+                    ps.executeUpdate();
+                }
+
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "DELETE FROM Lot_Contenant WHERE IdArticle = ?"
+                )) {
+                    ps.setInt(1, idArt);
+                    ps.executeUpdate();
+                }
+
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "DELETE FROM Contenant WHERE IdArticle = ?"
+                )) {
+                    ps.setInt(1, idArt);
+                    ps.executeUpdate();
+                }
+
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "DELETE FROM Art_Pdt WHERE IdArticle = ?"
+                )) {
+                    ps.setInt(1, idArt);
+                    ps.executeUpdate();
+                }
+
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "DELETE FROM Article WHERE IdArticle = ?"
+                )) {
+                    ps.setInt(1, idArt);
+                    ps.executeUpdate();
+                }
+            }
+
+            // Supprimer les produits du producteur
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "DELETE FROM Produit WHERE email_producteur = ?"
+            )) {
                 ps.setString(1, mailProd);
                 ps.executeUpdate();
             }
 
-            // 5. Exerce
-            try (PreparedStatement ps = conn.prepareStatement("""
-            DELETE FROM Exerce WHERE email_producteur = ?
-        """)) {
+            // Supprimer ses activités Exerce
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "DELETE FROM Exerce WHERE email_producteur = ?"
+            )) {
                 ps.setString(1, mailProd);
                 ps.executeUpdate();
             }
 
-            // 6. Producteur
-            try (PreparedStatement ps = conn.prepareStatement("""
-            DELETE FROM Producteur WHERE email_producteur = ?
-        """)) {
+            // Enfin, supprimer le producteur lui-même
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "DELETE FROM Producteur WHERE email_producteur = ?"
+            )) {
                 ps.setString(1, mailProd);
                 ps.executeUpdate();
             }
 
             conn.commit();
-            System.out.println("Producteur '" + mailProd + "' supprimé avec succès (avec toutes ses données).");
+            System.out.println("Producteur supprimé avec toutes ses données internes.");
 
         } catch (SQLException e) {
-            System.out.println("Erreur : échec de suppression complète du producteur.");
-            e.printStackTrace();
-            try { db.getConnection().rollback(); } catch (SQLException ignored) {}
+            System.out.println("Erreur pendant la suppression du producteur : " + e.getMessage());
+            try {
+                db.getConnection().rollback();
+            } catch (SQLException ignored) {
+            }
         }
 
         db.close();
+        pause();
     }
+
 
 
     public static void modArticleProd() {
@@ -2448,85 +2650,174 @@ public class MenuApp {
 
         try {
             db.getConnection().setAutoCommit(false);
-            System.out.println("Voici les articles produits existants :");
-            db.runQuery("SELECT * FROM Produit");
 
-            int idProduit = -1;
+            System.out.println("Liste des produits disponibles :");
+            db.runQuery("SELECT IdProduit, nom_Produit FROM Produit");
 
-            while (idProduit < 0) {
-                String rep = demanderValeurNonVide("Entrez l'id du produit pour lequel créer un article :");
-                try { idProduit = Integer.parseInt(rep); }
-                catch (Exception e) { idProduit = -1; }
+            // 1) Choix produit
+            int idProduit;
+            while (true) {
+                idProduit = demanderEntier("Id du produit : ");
 
-                // vérifier existence produit
-                String sqlCheck = "SELECT 1 FROM Produit WHERE idProduit = ?";
-                PreparedStatement ps = db.getConnection().prepareStatement(sqlCheck);
+                PreparedStatement ps = db.getConnection().prepareStatement(
+                        "SELECT 1 FROM Produit WHERE IdProduit = ?"
+                );
                 ps.setInt(1, idProduit);
-
                 ResultSet rs = ps.executeQuery();
-                if (!rs.next()) {
-                    System.out.println("Ce produit n'existe pas ! Continuer ? (y/n)");
-                    if (yesNoQuestion().equals("n")) {
-                        rs.close(); ps.close(); db.close();
-                        return;
-                    }
-                    System.out.println("Entrez un indentifiant de produit valide :");
-                    idProduit = -1;
+
+                if (rs.next()) {
+                    rs.close();
+                    ps.close();
+                    break;
                 }
 
                 rs.close();
                 ps.close();
+
+                System.out.println("Ce produit n'existe pas. Voulez-vous réessayer ? (y/n)");
+                if (yesNoQuestion().equals("n")) {
+                    db.close();
+                    return;
+                }
             }
 
-            // génération idArticle
-            String sqlId = "SELECT NVL(MAX(idArticle), 0) + 1 AS newId FROM Article";
+            // 2) Génération IdArticle
+            String sqlId = "SELECT NVL(MAX(IdArticle), 0) + 1 AS newId FROM Article";
             ResultSet rsId = db.getConnection().createStatement().executeQuery(sqlId);
             rsId.next();
             int newIdArticle = rsId.getInt("newId");
             rsId.close();
 
-            String mode = demanderValeurNonVide("Mode conditionnement : ");
+            // 3) Mode conditionnement
+            String mode = "";
+            while (!(mode.equals("Vrac") || mode.equals("Pré-Conditionné"))) {
+                mode = demanderValeurNonVide("Mode (Vrac / Pré-Conditionné) : ").trim();
+                if (!(mode.equals("Vrac") || mode.equals("Pré-Conditionné"))) {
+                    System.out.println("Valeur invalide, veuillez saisir Vrac ou Pré-Conditionné.");
+                }
+            }
 
-            String unite = demanderValeurNonVide("Mode conditionnement : ");
+            // 4) Quantité unitaire
+            double quantite = -1;
+            while (quantite <= 0) {
+                try {
+                    quantite = Double.parseDouble(
+                            demanderValeurNonVide("Quantité unitaire (> 0) : ")
+                    );
+                } catch (Exception e) {
+                    quantite = -1;
+                }
+                if (quantite <= 0) {
+                    System.out.println("La quantité doit être un nombre positif.");
+                }
+            }
 
-            String qte = demanderValeurNonVide("Mode conditionnement : ");
+            // 5) Unité
+            String unite = "";
+            while (!(unite.equals("g") || unite.equals("L") || unite.equals("unité"))) {
+                unite = demanderValeurNonVide("Unité (g / L / unité) : ").trim();
+                if (!(unite.equals("g") || unite.equals("L") || unite.equals("unité"))) {
+                    System.out.println("Unité invalide.");
+                }
+            }
 
-            // insertion Article
-            String sqlArt = "INSERT INTO Article(idArticle, prixttc) VALUES (?, ?)";
-            PreparedStatement pArt = db.getConnection().prepareStatement(sqlArt);
-            String ttc =  demanderValeurNonVide("Prix TTC : ");
-            double prix = Double.parseDouble(ttc);
-            pArt.setInt(1, newIdArticle);
-            pArt.setDouble(2, prix);
-            pArt.executeUpdate();
-            pArt.close();
+            // 6) Délai disponibilité
+            int delai = -1;
+            while (delai <= 0) {
+                delai = demanderEntier("Délai de disponibilité (> 0 jours) : ");
+                if (delai <= 0) {
+                    System.out.println("Le délai doit être strictement positif.");
+                }
+            }
 
-            // insertion Art_Pdt
-            String sql = """
-            INSERT INTO Art_Pdt(idArticle, idProduit, mode_conditionnement, unite, quantite_unitaire)
-            VALUES (?, ?, ?, ?, ?)
-        """;
+            // 7) Type dispo
+            String typeDispo = "";
+            while (!(typeDispo.equals("Sur Commande") ||
+                    typeDispo.equals("En Stock") ||
+                    typeDispo.equals("Sur Commande et En Stock"))) {
 
-            PreparedStatement psAdd = db.getConnection().prepareStatement(sql);
+                System.out.println("Types possibles :");
+                System.out.println("1) En Stock");
+                System.out.println("2) Sur Commande");
+                System.out.println("3) Sur Commande et En Stock");
+
+                int choix = demanderEntier("Votre choix : ");
+
+                switch (choix) {
+                    case 1 -> typeDispo = "En Stock";
+                    case 2 -> typeDispo = "Sur Commande";
+                    case 3 -> typeDispo = "Sur Commande et En Stock";
+                    default -> System.out.println("Choix invalide.");
+                }
+            }
+
+            // 8) Prix (Achat + TTC) / sans contrainte TTC > achat, juste > 0
+            double prixAchat = -1;
+            while (prixAchat <= 0) {
+                try {
+                    prixAchat = Double.parseDouble(
+                            demanderValeurNonVide("Prix d'achat (>0) : ")
+                    );
+                } catch (Exception e) {
+                    prixAchat = -1;
+                }
+                if (prixAchat <= 0) {
+                    System.out.println("Prix d'achat invalide.");
+                }
+            }
+
+            double prixTTC = -1;
+            while (prixTTC <= 0) {
+                try {
+                    prixTTC = Double.parseDouble(
+                            demanderValeurNonVide("Prix TTC (>0) : ")
+                    );
+                } catch (Exception e) {
+                    prixTTC = -1;
+                }
+                if (prixTTC <= 0) {
+                    System.out.println("Prix TTC invalide.");
+                }
+            }
+
+            // INSERT Article
+            PreparedStatement pA = db.getConnection().prepareStatement(
+                    "INSERT INTO Article(IdArticle, prixAchat, prixTTC) VALUES (?, ?, ?)"
+            );
+            pA.setInt(1, newIdArticle);
+            pA.setDouble(2, prixAchat);
+            pA.setDouble(3, prixTTC);
+            pA.executeUpdate();
+            pA.close();
+
+            // INSERT Art_Pdt
+            PreparedStatement psAdd = db.getConnection().prepareStatement("""
+                INSERT INTO Art_Pdt(IdArticle, IdProduit, Mode_Conditionnement,
+                                    Quantite_Unitaire, Unite, Delai_Dispo, Type_Dispo)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """);
             psAdd.setInt(1, newIdArticle);
             psAdd.setInt(2, idProduit);
             psAdd.setString(3, mode);
-            psAdd.setString(4, unite);
-            psAdd.setString(5, qte);
-
+            psAdd.setDouble(4, quantite);
+            psAdd.setString(5, unite);
+            psAdd.setInt(6, delai);
+            psAdd.setString(7, typeDispo);
             psAdd.executeUpdate();
             psAdd.close();
 
             db.getConnection().commit();
+            System.out.println("Article-produit ajouté.");
 
-            System.out.println("Article-produit ajouté !");
-        }
-        catch (Exception e) {
-            System.out.println("Erreur de connexion. Aucun article de produit n'a été ajouté");
-            try { db.getConnection().rollback(); } catch (Exception ignore) {}
+        } catch (Exception e) {
+            System.out.println("Erreur lors de l'ajout d'un article-produit : " + e.getMessage());
+            try {
+                db.getConnection().rollback();
+            } catch (Exception ignore) {}
         }
 
         db.close();
+        pause();
     }
 
     public static void suppArticleProduit() {
@@ -2535,56 +2826,118 @@ public class MenuApp {
 
         try {
             db.getConnection().setAutoCommit(false);
-            System.out.println("Voici les articles produits existants :");
-            db.runQuery("SELECT * FROM Art_Pdt");
-            String id = "";
-            while (id.equals("")) {
-                id = demanderValeurNonVide("Entrez indentifiant d'article de produit à supprimer :");
 
-                String sqlCheck = "SELECT 1 FROM Art_Pdt WHERE idArticle = ?";
-                PreparedStatement ps = db.getConnection().prepareStatement(sqlCheck);
-                ps.setString(1, id);
-                ResultSet rs = ps.executeQuery();
+            System.out.println("Articles-produit existants :");
+            db.runQuery("SELECT IdArticle, IdProduit, Mode_Conditionnement FROM Art_Pdt");
 
-                if (!rs.next()) {
-                    System.out.println("Cet article n'existe pas. Continuer ? (y/n)");
-                    if (yesNoQuestion().equals("n")) {
-                        rs.close(); ps.close(); db.close();
-                        return;
-                    }
-                    id = "";
-                }
+            int idArticle = demanderEntier("Entrez l'IdArticle à supprimer : ");
 
+            // Vérifier existence dans Art_Pdt
+            PreparedStatement check = db.getConnection().prepareStatement(
+                    "SELECT 1 FROM Art_Pdt WHERE IdArticle = ?"
+            );
+            check.setInt(1, idArticle);
+            ResultSet rs = check.executeQuery();
+
+            if (!rs.next()) {
+                System.out.println("Cet article-produit n'existe pas.");
                 rs.close();
-                ps.close();
+                check.close();
+                db.close();
+                pause();
+                return;
             }
+            rs.close();
+            check.close();
 
-            // supprimer Art_Pdt
-            PreparedStatement ps1 = db.getConnection().prepareStatement(
-                    "DELETE FROM Art_Pdt WHERE idArticle = ?"
+            // Vérifier utilisation dans des commandes
+            PreparedStatement checkCmd = db.getConnection().prepareStatement(
+                    "SELECT 1 FROM Ligne_Commande WHERE IdArticle = ?"
             );
-            ps1.setString(1, id);
-            ps1.executeUpdate();
-            ps1.close();
+            checkCmd.setInt(1, idArticle);
+            ResultSet rsCmd = checkCmd.executeQuery();
 
-            // supprimer Article correspondant
-            PreparedStatement ps2 = db.getConnection().prepareStatement(
-                    "DELETE FROM Article WHERE idArticle = ?"
+            if (rsCmd.next()) {
+                System.out.println("Impossible de supprimer cet article : il figure dans des commandes.");
+                rsCmd.close();
+                checkCmd.close();
+                db.close();
+                pause();
+                return;
+            }
+            rsCmd.close();
+            checkCmd.close();
+
+            // Vérifier présence de lots
+            PreparedStatement checkLot = db.getConnection().prepareStatement(
+                    "SELECT 1 FROM Lot_Produit WHERE IdArticle = ?"
             );
-            ps2.setString(1, id);
-            ps2.executeUpdate();
-            ps2.close();
+            checkLot.setInt(1, idArticle);
+            ResultSet rsLot = checkLot.executeQuery();
+
+            if (rsLot.next()) {
+                System.out.println("Impossible : cet article possède encore des lots de produit.");
+                System.out.println("Supprime d'abord les lots de ce produit.");
+                rsLot.close();
+                checkLot.close();
+                db.close();
+                pause();
+                return;
+            }
+            rsLot.close();
+            checkLot.close();
+
+            // Vérifier s'il est un Contenant
+            PreparedStatement checkCont = db.getConnection().prepareStatement(
+                    "SELECT 1 FROM Contenant WHERE IdArticle = ?"
+            );
+            checkCont.setInt(1, idArticle);
+            ResultSet rsCont = checkCont.executeQuery();
+
+            if (rsCont.next()) {
+                System.out.println("Cet article correspond à un contenant.");
+                System.out.println("Utilisez la fonction de suppression de contenant.");
+                rsCont.close();
+                checkCont.close();
+                db.close();
+                pause();
+                return;
+            }
+            rsCont.close();
+            checkCont.close();
+
+            // Suppression Art_Pdt
+            PreparedStatement delAP = db.getConnection().prepareStatement(
+                    "DELETE FROM Art_Pdt WHERE IdArticle = ?"
+            );
+            delAP.setInt(1, idArticle);
+            delAP.executeUpdate();
+            delAP.close();
+
+            // Suppression Article
+            PreparedStatement delA = db.getConnection().prepareStatement(
+                    "DELETE FROM Article WHERE IdArticle = ?"
+            );
+            delA.setInt(1, idArticle);
+            delA.executeUpdate();
+            delA.close();
 
             db.getConnection().commit();
-            System.out.println("L'article de produit a été supprimé !");
-        }
-        catch (Exception e) {
-            System.out.println("Erreur de connexion. L'article de produit n'a pas été supprimé.");
-            try { db.getConnection().rollback(); } catch (Exception ignore) {}
+            System.out.println("Article-produit supprimé.");
+
+        } catch (SQLException e) {
+            System.out.println("Erreur suppression article-produit : " + e.getMessage());
+            try {
+                db.getConnection().rollback();
+            } catch (Exception ignored) {
+            }
         }
 
         db.close();
+        pause();
     }
+
+
 
     public static void modLotProduit() {
         clearScreen();
@@ -2615,152 +2968,139 @@ public class MenuApp {
             System.out.println("Articles disponibles :");
             db.runQuery("SELECT * FROM Article");
 
-            String idart = demanderValeurNonVide("Entrez l'indentifiant de l'article pour créer un lot :");
-            int idArticle = Integer.parseInt(idart);
+            int idArticle = demanderEntier("IdArticle du lot : ");
 
-            String qt = demanderValeurNonVide("Quantité en stock : ");
+            // Vérifier si Article existe
+            PreparedStatement check = db.getConnection().prepareStatement(
+                    "SELECT 1 FROM Article WHERE IdArticle = ?"
+            );
+            check.setInt(1, idArticle);
+            ResultSet rc = check.executeQuery();
 
-            double qte = Double.parseDouble(qt);
+            if (!rc.next()) {
+                System.out.println("Cet article n'existe pas.");
+                rc.close();
+                check.close();
+                db.close();
+                return;
+            }
+            rc.close();
+            check.close();
 
-            String date = ("Date de péremption (YYYY-MM-DD) : ");
+            double qte = -1;
+            while (qte <= 0) {
+                try {
+                    qte = Double.parseDouble(
+                            demanderValeurNonVide("Quantité disponible : ")
+                    );
+                } catch (Exception e) {
+                    qte = -1;
+                }
+                if (qte <= 0) System.out.println("Quantité invalide.");
+            }
+
+            String dateRec = demanderValeurNonVide("Date réception (YYYY-MM-DD) : ");
+            String datePer = demanderValeurNonVide("Date péremption (YYYY-MM-DD) : ");
+
+            String type = "";
+            while (!type.equals("DLC") && !type.equals("DLUO")) {
+                type = demanderValeurNonVide("Type date (DLC / DLUO) : ");
+            }
 
             String sql = """
-            INSERT INTO Lot_Produit(idArticle, quantite, date_peremption)
-            VALUES (?, ?, TO_DATE(?, 'YYYY-MM-DD'))
+            INSERT INTO Lot_Produit(IdArticle, date_reception, date_peremption, type_date, Qte_dispo)
+            VALUES (?, TO_DATE(?, 'YYYY-MM-DD'), TO_DATE(?, 'YYYY-MM-DD'), ?, ?)
         """;
 
             PreparedStatement ps = db.getConnection().prepareStatement(sql);
             ps.setInt(1, idArticle);
-            ps.setDouble(2, qte);
-            ps.setString(3, date);
+            ps.setString(2, dateRec);
+            ps.setString(3, datePer);
+            ps.setString(4, type);
+            ps.setDouble(5, qte);
 
             ps.executeUpdate();
             ps.close();
-
             db.getConnection().commit();
-            System.out.println("Lot ajouté !");
+
+            System.out.println("Lot produit ajouté !");
         }
         catch (Exception e) {
-            System.out.println("Erreur de connexion. Le lot n'a pas été ajouté.");
+            System.out.println("Erreur ajout lot produit : " + e.getMessage());
             try { db.getConnection().rollback(); } catch (Exception ignore) {}
-        }
-
-        db.close();
-    }
-
-    public static void modificationLotProduit() {
-        clearScreen();
-        OracleDB db = new OracleDB();
-
-        System.out.println("Voulez-vous modifier la quantité d'un lot de produit ? (y/n):");
-        String reponse = yesNoQuestion();
-        if (reponse.equals("n")) {
-            db.close();
-            return;
-        }
-
-        try {
-            db.getConnection().setAutoCommit(false);
-            // Afficher tous les lots
-            System.out.println("Voici les lots de produits :");
-            db.runQuery("SELECT IdArticle, date_reception, Qte_dispo FROM Lot_Produit");
-
-            // ========== CHOIX ID ARTICLE ==========
-            String idArticleStr = "";
-            while (idArticleStr.isEmpty()) {
-                idArticleStr = demanderValeurNonVide("\nEntrez l'identifiant de l'article concerné :");
-
-                String sqlVerifArticle = """
-                SELECT DISTINCT IdArticle FROM Lot_Produit WHERE IdArticle = ?
-            """;
-
-                PreparedStatement ps = db.getConnection().prepareStatement(sqlVerifArticle);
-                ps.setInt(1, Integer.parseInt(idArticleStr));
-                ResultSet rs = ps.executeQuery();
-
-                if (!rs.next()) {
-                    System.out.println(" Cet IdArticle ne correspond à aucun lot.");
-                    idArticleStr = "";
-                }
-
-                rs.close();
-                ps.close();
-            }
-
-            int idArticle = Integer.parseInt(idArticleStr);
-
-            // ========== CHOIX DATE RECEPTION ==========
-            String dateReceptionStr = "";
-            while (dateReceptionStr.isEmpty()) {
-                dateReceptionStr = demanderValeurNonVide("Entrez la date de réception du lot (format DD-MM-YYYY) :");
-
-                String sqlVerifDate = """
-                SELECT * FROM Lot_Produit
-                WHERE IdArticle = ? 
-                AND date_reception = TO_DATE(?, 'DD-MM-YYYY')
-            """;
-
-                PreparedStatement ps = db.getConnection().prepareStatement(sqlVerifDate);
-                ps.setInt(1, idArticle);
-                ps.setString(2, dateReceptionStr);
-                ResultSet rs = ps.executeQuery();
-
-                if (!rs.next()) {
-                    System.out.println(" Aucun lot ne correspond à cette date pour cet article.");
-                    dateReceptionStr = "";
-                }
-
-                rs.close();
-                ps.close();
-            }
-
-            // ========== NOUVELLE QUANTITÉ (FLOAT) ==========
-            String nouvelleQteStr = "";
-            double nouvelleQte = 0;
-
-            while (nouvelleQteStr.isEmpty()) {
-                nouvelleQteStr = demanderValeurNonVide("Entrez la nouvelle quantité disponible (nombre > 0, décimal accepté) :");
-
-                try {
-                    nouvelleQte = Double.parseDouble(nouvelleQteStr);
-                    if (nouvelleQte <= 0) {
-                        System.out.println(" La quantité doit être un nombre positif.");
-                        nouvelleQteStr = "";
-                    }
-                } catch (Exception e) {
-                    System.out.println(" Ce n'est pas un nombre valide.");
-                    nouvelleQteStr = "";
-                }
-            }
-
-            // ========== MISE À JOUR ==========
-            String sqlUpdate = """
-            UPDATE Lot_Produit
-            SET Qte_dispo = ?
-            WHERE IdArticle = ?
-              AND date_reception = TO_DATE(?, 'DD-MM-YYYY')
-        """;
-
-            PreparedStatement psUpdate = db.getConnection().prepareStatement(sqlUpdate);
-            psUpdate.setDouble(1, nouvelleQte);
-            psUpdate.setInt(2, idArticle);
-            psUpdate.setString(3, dateReceptionStr);
-
-            psUpdate.executeUpdate();
-            psUpdate.close();
-
-            db.getConnection().commit();
-            System.out.println("✔ Quantité du lot modifiée avec succès !");
-
-        } catch (Exception e) {
-            try { db.getConnection().rollback(); } catch (Exception ignored) {}
-            System.out.println(" ERREUR : la quantité du lot n'a pas été modifiée.");
-            e.printStackTrace();
         }
 
         db.close();
         pause();
     }
+
+
+
+    public static void modificationLotProduit() {
+        clearScreen();
+        OracleDB db = new OracleDB();
+
+        try {
+            db.getConnection().setAutoCommit(false);
+            db.runQuery("SELECT IdArticle, TO_CHAR(date_reception,'YYYY-MM-DD') AS dateRec, Qte_dispo FROM Lot_Produit");
+
+            int idArticle = demanderEntier("IdArticle du lot à modifier : ");
+            String dateRec = demanderValeurNonVide("Date réception (YYYY-MM-DD) : ");
+
+            PreparedStatement check = db.getConnection().prepareStatement("""
+            SELECT 1 FROM Lot_Produit
+            WHERE IdArticle = ?
+            AND date_reception = TO_DATE(?, 'YYYY-MM-DD')
+        """);
+            check.setInt(1, idArticle);
+            check.setString(2, dateRec);
+            ResultSet rs = check.executeQuery();
+
+            if (!rs.next()) {
+                System.out.println("Lot introuvable.");
+                rs.close(); check.close(); db.close();
+                pause();
+                return;
+            }
+            rs.close();
+            check.close();
+
+            double newQte = -1;
+            while (newQte <= 0) {
+                try {
+                    newQte = Double.parseDouble(
+                            demanderValeurNonVide("Nouvelle quantité : ")
+                    );
+                } catch (Exception e) {
+                    newQte = -1;
+                }
+                if (newQte <= 0) System.out.println("Quantité invalide.");
+            }
+
+            PreparedStatement upd = db.getConnection().prepareStatement("""
+            UPDATE Lot_Produit
+            SET Qte_dispo = ?
+            WHERE IdArticle = ?
+            AND date_reception = TO_DATE(?, 'YYYY-MM-DD')
+        """);
+            upd.setDouble(1, newQte);
+            upd.setInt(2, idArticle);
+            upd.setString(3, dateRec);
+            upd.executeUpdate();
+            upd.close();
+
+            db.getConnection().commit();
+            System.out.println("Lot modifié !");
+        }
+        catch (Exception e) {
+            System.out.println("Erreur modification lot produit : " + e.getMessage());
+            try { db.getConnection().rollback(); } catch (Exception ignore) {}
+        }
+
+        db.close();
+        pause();
+    }
+
 
     public static void suppLotProduit() {
         clearScreen();
@@ -2768,29 +3108,57 @@ public class MenuApp {
 
         try {
             db.getConnection().setAutoCommit(false);
-            db.runQuery("SELECT * FROM Lot_Produit");
+            db.runQuery("SELECT IdArticle, TO_CHAR(date_reception,'YYYY-MM-DD') AS dateRec, Qte_dispo FROM Lot_Produit");
 
-            String idLotStr = demanderValeurNonVide("Entrez l'identifiant du lot de produit à supprimer :");
-            int idLot = Integer.parseInt(idLotStr);
+            int idArt = demanderEntier("IdArticle du lot à supprimer : ");
+            String dateRec = demanderValeurNonVide("Date réception (YYYY-MM-DD) : ");
 
-            PreparedStatement ps = db.getConnection().prepareStatement(
-                    "DELETE FROM Lot_Produit WHERE idLotProduit = ?"
-            );
-            ps.setInt(1, idLot);
-            ps.executeUpdate();
-            ps.close();
+            PreparedStatement check = db.getConnection().prepareStatement("""
+                SELECT 1 FROM Lot_Produit
+                WHERE IdArticle = ?
+                AND date_reception = TO_DATE(?, 'YYYY-MM-DD')
+            """);
+            check.setInt(1, idArt);
+            check.setString(2, dateRec);
+            ResultSet rs = check.executeQuery();
+
+            if (!rs.next()) {
+                System.out.println("Aucun lot ne correspond.");
+                rs.close();
+                check.close();
+                db.close();
+                pause();
+                return;
+            }
+            rs.close();
+            check.close();
+
+            PreparedStatement del = db.getConnection().prepareStatement("""
+                DELETE FROM Lot_Produit
+                WHERE IdArticle = ?
+                AND date_reception = TO_DATE(?, 'YYYY-MM-DD')
+            """);
+            del.setInt(1, idArt);
+            del.setString(2, dateRec);
+            del.executeUpdate();
+            del.close();
 
             db.getConnection().commit();
+            System.out.println("Lot supprimé.");
 
-            System.out.println("Lot supprimé !");
-        }
-        catch (Exception e) {
-            System.out.println("Erreur de connexion.Le lot n'a pas été supprimé.");
-            try { db.getConnection().rollback(); } catch (Exception ignore) {}
+        } catch (Exception e) {
+            System.out.println("Erreur suppression lot produit : " + e.getMessage());
+            try {
+                db.getConnection().rollback();
+            } catch (Exception ignore) {}
         }
 
         db.close();
+        pause();
     }
+
+
+
 
     public static void modContenant() {
         clearScreen();
@@ -2912,49 +3280,97 @@ public class MenuApp {
 
         try {
             db.getConnection().setAutoCommit(false);
+
+            System.out.println("Liste des contenants :");
             db.runQuery("SELECT * FROM Contenant");
 
-            String id = "";
+            int idArticle;
 
-            while (id.equals("")) {
-                id = demanderValeurNonVide("Entrez l'IdArticle du contenant à supprimer :");
+            while (true) {
+                idArticle = demanderEntier("Entrez l'IdArticle du contenant à supprimer : ");
 
-                String sqlCheck = "SELECT 1 FROM Contenant WHERE IdArticle = ?";
-                PreparedStatement ps = db.getConnection().prepareStatement(sqlCheck);
-                ps.setString(1, id);
+                // Vérifier existence
+                PreparedStatement ps = db.getConnection().prepareStatement(
+                        "SELECT 1 FROM Contenant WHERE IdArticle = ?"
+                );
+                ps.setInt(1, idArticle);
                 ResultSet rs = ps.executeQuery();
 
-                if (!rs.next()) {
-                    System.out.println("Ce contenant n'existe pas. Continuer ? (y/n)");
-                    if (yesNoQuestion().equals("n")) {
-                        rs.close(); ps.close(); db.close();
-                        return;
-                    }
-                    id = "";
+                if (rs.next()) {
+                    rs.close();
+                    ps.close();
+                    break; // ok
                 }
 
                 rs.close();
                 ps.close();
+
+                System.out.println("Ce contenant n'existe pas.");
+                System.out.println("Voulez-vous réessayer ? (y/n)");
+                if (yesNoQuestion().equals("n")) {
+                    db.close();
+                    return;
+                }
             }
 
-            // DELETE Contenant (cascade supprimera Article si défini ON DELETE CASCADE)
-            PreparedStatement psDel = db.getConnection().prepareStatement(
-                    "DELETE FROM Contenant WHERE IdArticle = ?"
+            // Vérifier si l'article du contenant est utilisé dans des commandes
+            PreparedStatement checkCmd = db.getConnection().prepareStatement(
+                    "SELECT 1 FROM Ligne_Commande WHERE IdArticle = ?"
             );
-            psDel.setString(1, id);
-            psDel.executeUpdate();
-            psDel.close();
+            checkCmd.setInt(1, idArticle);
+            ResultSet rsCmd = checkCmd.executeQuery();
+
+            if (rsCmd.next()) {
+                System.out.println("Impossible de supprimer ce contenant : son article est utilisé dans des commandes.");
+                rsCmd.close();
+                checkCmd.close();
+                db.close();
+                pause();
+                return;
+            }
+            rsCmd.close();
+            checkCmd.close();
+
+            // Supprimer lots de contenant
+            try (PreparedStatement ps = db.getConnection().prepareStatement(
+                    "DELETE FROM Lot_Contenant WHERE IdArticle = ?"
+            )) {
+                ps.setInt(1, idArticle);
+                ps.executeUpdate();
+            }
+
+            // Supprimer le contenant
+            try (PreparedStatement ps = db.getConnection().prepareStatement(
+                    "DELETE FROM Contenant WHERE IdArticle = ?"
+            )) {
+                ps.setInt(1, idArticle);
+                ps.executeUpdate();
+            }
+
+            // Supprimer l'article associé
+            try (PreparedStatement ps = db.getConnection().prepareStatement(
+                    "DELETE FROM Article WHERE IdArticle = ?"
+            )) {
+                ps.setInt(1, idArticle);
+                ps.executeUpdate();
+            }
 
             db.getConnection().commit();
             System.out.println("Contenant supprimé.");
-        }
-        catch (SQLException e) {
-            System.out.println("Erreur suppression contenant.");
-            try { db.getConnection().rollback(); } catch (SQLException ign) {}
+
+        } catch (SQLException e) {
+            System.out.println("Erreur suppression contenant : " + e.getMessage());
+            try {
+                db.getConnection().rollback();
+            } catch (Exception ign) {
+            }
         }
 
         db.close();
+        pause();
     }
+
+
 
     public static void modLotContenant() {
         clearScreen();
@@ -2977,66 +3393,49 @@ public class MenuApp {
 
         try {
             db.getConnection().setAutoCommit(false);
-            System.out.println("Voici les contenants :");
             db.runQuery("SELECT * FROM Contenant");
 
-            int idArticle = -1;
+            int idArticle = demanderEntier("IdArticle du contenant : ");
 
-            while (idArticle < 0) {
-                try {
-                    String idArtStr = demanderValeurNonVide("Entrez l'IdArticle pour créer un lot :");
-                    idArticle = Integer.parseInt(idArtStr);
-                } catch (Exception e) {
-                    idArticle = -1;
-                }
+            PreparedStatement check = db.getConnection().prepareStatement(
+                    "SELECT 1 FROM Contenant WHERE IdArticle = ?"
+            );
+            check.setInt(1, idArticle);
+            ResultSet rs = check.executeQuery();
 
-                PreparedStatement ps = db.getConnection().prepareStatement(
-                        "SELECT 1 FROM Contenant WHERE IdArticle = ?"
-                );
-                ps.setInt(1, idArticle);
-                ResultSet rs = ps.executeQuery();
-
-                if (!rs.next()) {
-                    System.out.println("Ce contenant n'existe pas. Continuer ? (y/n)");
-                    if (yesNoQuestion().equals("n")) {
-                        rs.close(); ps.close(); db.close();
-                        return;
-                    }
-                    idArticle = -1;
-                }
-
-                rs.close();
-                ps.close();
+            if (!rs.next()) {
+                System.out.println("Ce contenant n'existe pas.");
+                rs.close(); check.close(); db.close();
+                return;
             }
+            rs.close();
+            check.close();
 
-            String qteStr = demanderValeurNonVide("Quantité disponible dans le lot :");
-            int qte = Integer.parseInt(qteStr);
+            int qte = demanderEntier("Quantité du lot : ");
+            String dateRec = demanderValeurNonVide("Date réception (YYYY-MM-DD) : ");
 
-            String dateRec = demanderValeurNonVide("Date de réception (YYYY-MM-DD) :");
-
-            String sqlInsert = """
+            PreparedStatement ins = db.getConnection().prepareStatement("""
             INSERT INTO Lot_Contenant(IdArticle, date_reception, Qte_dispo)
             VALUES (?, TO_DATE(?, 'YYYY-MM-DD'), ?)
-        """;
-
-            PreparedStatement psAdd = db.getConnection().prepareStatement(sqlInsert);
-            psAdd.setInt(1, idArticle);
-            psAdd.setString(2, dateRec);
-            psAdd.setInt(3, qte);
-
-            psAdd.executeUpdate();
-            psAdd.close();
+        """);
+            ins.setInt(1, idArticle);
+            ins.setString(2, dateRec);
+            ins.setInt(3, qte);
+            ins.executeUpdate();
+            ins.close();
 
             db.getConnection().commit();
             System.out.println("Lot de contenant ajouté !");
         }
-        catch (SQLException e) {
-            System.out.println("Erreur ajout lot contenant.");
-            try { db.getConnection().rollback(); } catch (SQLException ign) {}
+        catch (Exception e) {
+            System.out.println("Erreur ajout lot contenant : " + e.getMessage());
+            try { db.getConnection().rollback(); } catch (Exception ignore) {}
         }
 
         db.close();
+        pause();
     }
+
 
     public static void suppLotContenant() {
         clearScreen();
@@ -3044,51 +3443,56 @@ public class MenuApp {
 
         try {
             db.getConnection().setAutoCommit(false);
-            db.runQuery("SELECT * FROM Lot_Contenant");
+            db.runQuery("SELECT IdArticle, TO_CHAR(date_reception,'YYYY-MM-DD') AS dateRec, Qte_dispo FROM Lot_Contenant");
 
-            String idArtStr = demanderValeurNonVide("Entrez l'identifiant de l'article du lot à supprimer :");
-            int idArticle = Integer.parseInt(idArtStr);
+            int idArt = demanderEntier("IdArticle du lot contenant à supprimer : ");
+            String dateRec = demanderValeurNonVide("Date réception (YYYY-MM-DD) : ");
 
-            String dateRec = demanderValeurNonVide("Entrez la date de réception du lot (YYYY-MM-DD) :");
+            PreparedStatement check = db.getConnection().prepareStatement("""
+                SELECT 1 FROM Lot_Contenant
+                WHERE IdArticle = ?
+                AND date_reception = TO_DATE(?, 'YYYY-MM-DD')
+            """);
+            check.setInt(1, idArt);
+            check.setString(2, dateRec);
 
-            PreparedStatement psCheck = db.getConnection().prepareStatement("""
-            SELECT 1 FROM Lot_Contenant
-            WHERE IdArticle = ?
-            AND date_reception = TO_DATE(?, 'YYYY-MM-DD')
-        """);
-            psCheck.setInt(1, idArticle);
-            psCheck.setString(2, dateRec);
+            ResultSet rs = check.executeQuery();
 
-            ResultSet rs = psCheck.executeQuery();
             if (!rs.next()) {
-                System.out.println("Aucun lot avec ces informations !");
+                System.out.println("Aucun lot de contenant trouvé.");
                 rs.close();
-                psCheck.close();
+                check.close();
                 db.close();
+                pause();
                 return;
             }
 
             rs.close();
-            psCheck.close();
+            check.close();
 
-            PreparedStatement psDel = db.getConnection().prepareStatement("""
-            DELETE FROM Lot_Contenant
-            WHERE IdArticle = ?
-            AND date_reception = TO_DATE(?, 'YYYY-MM-DD')
-        """);
-            psDel.setInt(1, idArticle);
-            psDel.setString(2, dateRec);
-            psDel.executeUpdate();
-            psDel.close();
+            PreparedStatement del = db.getConnection().prepareStatement("""
+                DELETE FROM Lot_Contenant
+                WHERE IdArticle = ?
+                AND date_reception = TO_DATE(?, 'YYYY-MM-DD')
+            """);
+            del.setInt(1, idArt);
+            del.setString(2, dateRec);
+            del.executeUpdate();
+            del.close();
 
             db.getConnection().commit();
-            System.out.println("Lot supprimé.");
-        }
-        catch (SQLException e) {
-            System.out.println("Erreur de connexion. Le lot du contenant.");
-            try { db.getConnection().rollback(); } catch (SQLException ign) {}
+            System.out.println("Lot de contenant supprimé.");
+
+        } catch (Exception e) {
+            System.out.println("Erreur suppression lot contenant : " + e.getMessage());
+            try {
+                db.getConnection().rollback();
+            } catch (Exception ignore) {}
         }
 
         db.close();
+        pause();
     }
+
+
 }
