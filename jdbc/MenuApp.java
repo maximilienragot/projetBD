@@ -25,6 +25,15 @@ public class MenuApp {
     private static final int MARGE_TOLERE_EXPIRATION = 10;
     private static final String STATUT_RECUPERE = "Récupérée | Livrée";
     private static final Map<Integer, Double> prixBaseArticles = new HashMap<>();
+    private static final Map<Integer, LocalDate> dernierRabais = new HashMap<>();
+    private static final boolean ANSI_ENABLED = !System.getProperty("os.name").toLowerCase().contains("windows")
+            || "ON".equalsIgnoreCase(System.getenv("ENABLE_ANSI"));
+    private static final String ANSI_RESET = "\u001B[0m";
+    private static final String ANSI_BOLD = "\u001B[1m";
+    private static final String ANSI_CYAN = "\u001B[36m";
+    private static final String ANSI_YELLOW = "\u001B[33m";
+    private static final String ANSI_GREEN = "\u001B[32m";
+    private static final String ANSI_RED = "\u001B[31m";
     private static final DateTimeFormatter HEURE_FORMAT = DateTimeFormatter.ofPattern("HH:mm");
     private static final String SQL_DATE_PEREMPTION = "CASE WHEN REGEXP_LIKE(lp.date_peremption, '^[0-9]{2}-[A-Z]{3}-[0-9]{2}$') THEN TO_DATE(lp.date_peremption, 'DD-MON-RR', 'NLS_DATE_LANGUAGE=AMERICAN') WHEN REGEXP_LIKE(lp.date_peremption, '^[0-9]{4}-[0-9]{2}-[0-9]{2}$') THEN TO_DATE(lp.date_peremption, 'YYYY-MM-DD') ELSE NULL END";
     static Scanner scanner = new Scanner(System.in);
@@ -57,7 +66,7 @@ public class MenuApp {
 
     private static void mettreAJourInformationsPersonnelles() {
         clearScreen();
-        System.out.println("===== Modifier mes informations =====");
+        printHeader("MODIFIER MES INFORMATIONS");
         if (id_client.isEmpty()) {
             System.out.println("Vous devez être connecté(e).");
             pause();
@@ -203,7 +212,7 @@ public class MenuApp {
 
     private static void supprimerDonneesClient() {
         clearScreen();
-        System.out.println("===== Supprimer mes données =====");
+        printHeader("SUPPRIMER MES DONNEES");
         if (id_client.isEmpty()) {
             System.out.println("Vous devez être connecté(e).");
             pause();
@@ -227,7 +236,7 @@ public class MenuApp {
 
     private static void consulterCommandesClient() {
         clearScreen();
-        System.out.println("===== Mes commandes =====");
+        printHeader("MES COMMANDES");
         if (id_client.isEmpty()) {
             System.out.println("Vous devez être connecté(e).");
             pause();
@@ -360,14 +369,25 @@ public class MenuApp {
         choisirInterface();
     }
 
+    private static String color(String text, String code) {
+        return ANSI_ENABLED ? code + text + ANSI_RESET : text;
+    }
+
+    private static void printHeader(String title) {
+        String bar = "==============================================";
+        System.out.println(color(bar, ANSI_CYAN));
+        System.out.println(color(" " + title, ANSI_BOLD + ANSI_CYAN));
+        System.out.println(color(bar, ANSI_CYAN));
+    }
+
     private static void choisirInterface() {
         while (true) {
             clearScreen();
-            System.out.println("===== CHOIX D'INTERFACE =====");
-            System.out.println("1. Interface Utilisateur");
-            System.out.println("2. Interface Épicier");
-            System.out.println("0. Quitter");
-            System.out.print("Votre choix : ");
+            printHeader("CHOIX D'INTERFACE");
+            System.out.println(color("1. Interface Utilisateur", ANSI_GREEN));
+            System.out.println(color("2. Interface Épicier", ANSI_GREEN));
+            System.out.println(color("0. Quitter", ANSI_YELLOW));
+            System.out.print(color("Votre choix : ", ANSI_CYAN));
             int choix = scanner.nextInt();
             scanner.nextLine();
 
@@ -672,13 +692,17 @@ public class MenuApp {
                         java.sql.Date peremptionSql = rs.getDate("peremption");
                         if (peremptionSql == null) {
                             continue;
-                        }
+                    }
                         LocalDate peremptionDate = peremptionSql.toLocalDate();
                         long joursRestants = ChronoUnit.DAYS.between(dateCourante, peremptionDate);
                         long joursClampe = Math.max(0, Math.min(MARGE_TOLERE_EXPIRATION, joursRestants));
 
                         // Remise progresse de 50% (10 jours) à 90% (le jour J ou après)
                         double facteurPrix = 0.1 + 0.4 * (joursClampe / (double) MARGE_TOLERE_EXPIRATION);
+
+                        if (dateCourante.equals(dernierRabais.get(idArticle))) {
+                            continue;
+                        }
 
                         double prixActuel = rs.getDouble("prixTTC");
                         double prixBase = prixBaseArticles.computeIfAbsent(idArticle, k -> prixActuel);
@@ -691,6 +715,7 @@ public class MenuApp {
                                 psUpdate.executeUpdate();
                             }
                         }
+                        dernierRabais.put(idArticle, dateCourante);
                     }
                 }
             }
@@ -711,27 +736,27 @@ public class MenuApp {
         while (true) {
             rafraichirNombreAlertes();
             clearScreen();
-            System.out.println("===== INTERFACE UTILISATEUR =====");
-            System.out.println("1. Consulter nos catalogues");
-            System.out.println("2. Soldes / Offres (" + nombreAlertePeremption + ")");
+            printHeader("INTERFACE UTILISATEUR");
+            System.out.println(color("1. Consulter nos catalogues", ANSI_GREEN));
+            System.out.println(color("2. Soldes / Offres (" + nombreAlertePeremption + ")", ANSI_GREEN));
 
             if (id_client.isEmpty()) {
-                System.out.println("3. Passer une commande (connexion requise)");
-                System.out.println("4. Inscription / Connexion");
-                System.out.println("0. Retour");
+                System.out.println(color("3. Passer une commande (connexion requise)", ANSI_YELLOW));
+                System.out.println(color("4. Inscription / Connexion", ANSI_GREEN));
+                System.out.println(color("0. Retour", ANSI_YELLOW));
             } else if (compteIncomplet) {
-                System.out.println("3. Passer une commande (désactivé : compte incomplet)");
-                System.out.println("4. Gérer mes informations");
-                System.out.println("5. Déconnexion");
-                System.out.println("0. Retour");
+                System.out.println(color("3. Passer une commande (désactivé : compte incomplet)", ANSI_RED));
+                System.out.println(color("4. Gérer mes informations", ANSI_GREEN));
+                System.out.println(color("5. Déconnexion", ANSI_YELLOW));
+                System.out.println(color("0. Retour", ANSI_YELLOW));
             } else {
-                System.out.println("3. Passer une commande");
-                System.out.println("4. Gérer mes informations");
-                System.out.println("5. Déconnexion");
-                System.out.println("0. Retour");
+                System.out.println(color("3. Passer une commande", ANSI_GREEN));
+                System.out.println(color("4. Gérer mes informations", ANSI_GREEN));
+                System.out.println(color("5. Déconnexion", ANSI_YELLOW));
+                System.out.println(color("0. Retour", ANSI_YELLOW));
             }
 
-            System.out.print("Votre choix : ");
+            System.out.print(color("Votre choix : ", ANSI_CYAN));
             int choix = scanner.nextInt();
             scanner.nextLine();
 
@@ -779,13 +804,13 @@ public class MenuApp {
         while (true) {
             rafraichirNombreAlertes();
             clearScreen();
-            System.out.println("===== INTERFACE ÉPICIER =====");
-            System.out.println("1. Consulter nos catalogues");
-            System.out.println("2. Alertes de péremption (" + nombreAlertePeremption + ")");
-            System.out.println("3. Clôturer / mettre à jour une commande");
-            System.out.println("4. Déclarer une perte");
-            System.out.println("0. Retour");
-            System.out.print("Votre choix : ");
+            printHeader("INTERFACE EPICIER");
+            System.out.println(color("1. Consulter nos catalogues", ANSI_GREEN));
+            System.out.println(color("2. Alertes de péremption (" + nombreAlertePeremption + ")", ANSI_GREEN));
+            System.out.println(color("3. Clôturer / mettre à jour une commande", ANSI_GREEN));
+            System.out.println(color("4. Déclarer une perte", ANSI_YELLOW));
+            System.out.println(color("0. Retour", ANSI_YELLOW));
+            System.out.print(color("Votre choix : ", ANSI_CYAN));
 
             int choix = scanner.nextInt();
             scanner.nextLine();
@@ -817,16 +842,16 @@ public class MenuApp {
     public static void menuCatalogue() {
         int choix = -1;
         clearScreen();
-        System.out.println("===== CATALOGUES =====");
-        System.out.println("1. Légumes");
-        System.out.println("2. Fruits");
-        System.out.println("3. Produits Laitiers");
-        System.out.println("4. Boulangerie");
-        System.out.println("5. Boissons");
-        System.out.println("6. Épicerie");
-        System.out.println("7. Contenants");
-        System.out.println("0. Retour");
-        System.out.print("Votre choix : ");
+        printHeader("CATALOGUES");
+        System.out.println(color("1. Légumes", ANSI_GREEN));
+        System.out.println(color("2. Fruits", ANSI_GREEN));
+        System.out.println(color("3. Produits Laitiers", ANSI_GREEN));
+        System.out.println(color("4. Boulangerie", ANSI_GREEN));
+        System.out.println(color("5. Boissons", ANSI_GREEN));
+        System.out.println(color("6. Épicerie", ANSI_GREEN));
+        System.out.println(color("7. Contenants", ANSI_GREEN));
+        System.out.println(color("0. Retour", ANSI_YELLOW));
+        System.out.print(color("Votre choix : ", ANSI_CYAN));
         while (choix != 0) {
 
             choix = scanner.nextInt();
@@ -892,7 +917,7 @@ public class MenuApp {
     public static void Passer_Commande() {
 
         clearScreen();
-        System.out.println("===== Passer une commande =====");
+        printHeader("PASSER UNE COMMANDE");
 
         if (id_client.isEmpty()) {
             System.out.println("Vous devez être connecté(e) pour passer une commande.");
@@ -1468,7 +1493,7 @@ public class MenuApp {
         LocalDate limite = dateCourante.plusDays(MARGE_TOLERE_EXPIRATION);
 
         String titre = pourClient ? "===== SOLDES / OFFRES =====" : "===== ALERTES DE PÉREMPTION =====";
-        System.out.println(titre);
+        printHeader(pourClient ? "SOLDES / OFFRES" : "ALERTES DE PEREMPTION");
         if (nombreAlertePeremption == 0) {
             System.out.println("Aucun produit concerné pour le moment.");
             pause();
@@ -1666,7 +1691,7 @@ public class MenuApp {
 
     public static void cloturerCommande(boolean restreintAuClient) {
         clearScreen();
-        System.out.println("===== Clôturer une commande =====");
+        printHeader("CLOTURER UNE COMMANDE");
 
         if (restreintAuClient && Objects.equals(id_client, "")) {
             System.out.println("Vous n'êtes pas connecté(e).");
@@ -1874,7 +1899,7 @@ public class MenuApp {
     // ============================
     public static void declarerPerte() {
         clearScreen();
-        System.out.println("===== Déclarer une perte =====");
+        printHeader("DECLARER UNE PERTE");
 
         OracleDB db = new OracleDB();
         Connection conn = null;
@@ -2008,7 +2033,7 @@ public class MenuApp {
     // UTILITAIRES
     // ============================
     public static void pause() {
-        System.out.println("\nAppuyez sur ENTER pour quitter...");
+        System.out.println(color("\nAppuyez sur ENTER pour quitter...", ANSI_CYAN));
         try { System.in.read(); } catch (Exception e) {}
     }
 
