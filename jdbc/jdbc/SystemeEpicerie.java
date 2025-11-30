@@ -129,8 +129,6 @@ public class SystemeEpicerie {
         // =====================================================
         try {
 
-            db.getConnection().setAutoCommit(false);
-
             String sqlPerimes = """
             SELECT lp.IdArticle,
                    lp.date_reception,
