@@ -16,8 +16,9 @@ import java.util.List;
 public class MenuApp {
 
     static String id_client = "";
+    static String mail = "";
     private static int nombreAlertePeremption;
-    private static boolean clientOublie = true;
+    private static boolean compteIncomplet = true;
     private static final int MARGE_TOLERE_EXPIRATION = 10;
     static Scanner scanner = new Scanner(System.in);
     static List<String> requetes = List.of(
@@ -60,68 +61,298 @@ public class MenuApp {
     }
 
     public static void connectionDuClient() {
-        String id_client_temp = "";
-        System.out.println("Bonjour, voulez vous vous connecter ? (y/n)\n");
-        String reponse = scanner.next();
-        while (!(Objects.equals(reponse, "y") || Objects.equals(reponse, "n"))) {
-            System.out.println("reponse incorrecte ! ");
-            reponse = scanner.next();
-        }
-        if (reponse.equals("y")) {
-            System.out.println(" Veuillez entrer un id_client.");
-            id_client_temp = scanner.next();
-            while (id_client_temp.isEmpty()) {
-                clearScreen();
-                System.out.println("id_client non valide ! Voulez vous vous inscrire ? (y/n)");
-                String reponseContInscription =  "";
-                while (!(Objects.equals(reponseContInscription, "y" ) || Objects.equals(reponseContInscription, "n" ))) {
-                    System.out.println("reponse incorrecte ! ");
-                    reponseContInscription = scanner.next();
-                }
-                if (reponseContInscription.equals("n")) {
-                    return;
-                }
-                id_client_temp = scanner.next();
-
+        System.out.println("Avez-vous un compte ? (y/n)");
+        String reponse = yesNoQuestion();
+        OracleDB db = new OracleDB();
+        try {
+            if (reponse.equals("y")) {
+                connexionClient(db);
+            } else {
+                inscriptionOuPas(db);
             }
-            try {
-                OracleDB db = new OracleDB();
-                Statement stmt = db.getConnection().createStatement();
+        } catch (Exception e) {
+            try { db.getConnection().rollback(); } catch (Exception ignored) {}
+            System.out.println("Problème de connexion, veuillez réessayer plus tard.");
+        } finally {
+            db.close();
+        }
+        pause();
+    }
 
-                String sql = "SELECT * FROM Client WHERE idclient = '" + id_client_temp + "'";
-                ResultSet rs = stmt.executeQuery(sql);
-                if (rs.next()) {
-                    sql = "SELECT * FROM Client_non_oublie WHERE idclient = '" + id_client_temp + "'";
-                    rs = stmt.executeQuery(sql);
-                    if (rs.next()) {
-                        clientOublie = true;
-                    }
-                    id_client = id_client_temp;
-                } else {
-                    System.out.println(" Vous n'êtes pas inscrits, vous voulez vous vous inscrire ? (y/n/giveup)");
-                    String reponseInscription = scanner.next();
-                    while (!(Objects.equals(reponseInscription, "y") || Objects.equals(reponseInscription, "n")
-                            || Objects.equals(reponseInscription, "giveup"))) {
-                        System.out.println("reponse incorrecte ! ");
-                        reponseInscription = scanner.next();
-                    }
-                    if (reponseInscription.equals("y")) {
-                        // ajouter client
-                        id_client = id_client_temp;
-                        System.out.println("On vous a inscrit avec cet identifiant:" + id_client);
-                        questionAnonymisation();
-                    } else {
-                        System.out.println("Pas de souci ! Vous pourrez vous inscrire plus tard");
-                    }
-                }
-                stmt.close();
-                db.close();
-            } catch (Exception e) {
-                e.printStackTrace();
+    private static String yesNoQuestion() {
+        String reponse = scanner.nextLine().trim();
+        while (!(Objects.equals(reponse, "y") || Objects.equals(reponse, "n") || reponse.isEmpty())) {
+            System.out.println("réponse incorrecte ! Répondez <y> ou <n>.");
+            reponse = scanner.nextLine().trim();
+        }
+        return reponse.isEmpty() ? "n" : reponse;
+    }
+
+    private static String questionNonVide() {
+        String reponse = scanner.nextLine().trim();
+        while (reponse.isEmpty()) {
+            System.out.println("Réponse vide, merci de saisir une valeur :");
+            reponse = scanner.nextLine().trim();
+        }
+        return reponse;
+    }
+
+    private static boolean chargerClientParMail(OracleDB db, String mailTemp) throws SQLException {
+        String sql = "SELECT IdClient FROM Client_Non_Oublie WHERE EmailC = ?";
+        PreparedStatement ps = db.getConnection().prepareStatement(sql);
+        ps.setString(1, mailTemp);
+        ResultSet rs = ps.executeQuery();
+        if (rs.next()) {
+            id_client = String.valueOf(rs.getInt("IdClient"));
+            mail = mailTemp;
+            compteIncomplet = false;
+            rs.close();
+            ps.close();
+            return true;
+        }
+        rs.close();
+        ps.close();
+        return false;
+    }
+
+    private static void connexionClient(OracleDB db) throws SQLException {
+        String mail_temp;
+
+        while (true) {
+            System.out.println("Veuillez entrer votre email :");
+            mail_temp = scanner.nextLine().trim();
+
+            if (!mail_temp.isEmpty()) break;
+
+            clearScreen();
+            System.out.println("Email non valide ! Voulez-vous toujours vous connecter ? (y/n)");
+            String reponse = yesNoQuestion();
+            if (reponse.equals("n")) {
+                System.out.println("Pas de souci, vous pourrez vous connecter plus tard.");
+                return;
+            }
+        }
+
+        if (chargerClientParMail(db, mail_temp)) {
+            System.out.println("Connexion réussie avec l'email : " + mail);
+            System.out.println("Voulez-vous mettre à jour vos données personnelles ? (y/n)");
+            if (yesNoQuestion().equals("y")) {
+                questionDonnees(db);
+            }
+            return;
+        }
+
+        System.out.println("Vous n'êtes pas inscrit. Voulez-vous vous inscrire avec cet email ? (y/n)");
+        String repInscription = yesNoQuestion();
+
+        if (repInscription.equals("y")) {
+            mail = mail_temp;
+            insererClient(db);
+            System.out.println("Voulez vous entrer vos données personnelles ? (y/n)");
+            String reponse = yesNoQuestion();
+            if (reponse.equals("n")) {
+                System.out.println("Pas de souci, vous pourrez les entrer plus tard. Vous êtes connecté(e) avec : " + mail);
+                return;
+            }
+            creerCompteComplet(db, mail);
+            System.out.println("On vous a inscrit avec ce mail : " + mail);
+
+        } else {
+            System.out.println("Pas de souci ! Vous pourrez vous inscrire plus tard.");
+        }
+    }
+
+    private static void inscriptionOuPas(OracleDB db) throws SQLException {
+
+        System.out.println("Voulez-vous vous inscrire ? (y/n)");
+        String reponse = yesNoQuestion();
+        if (reponse.equals("n")) {
+            System.out.println("Pas de souci, vous pourrez vous inscrire plus tard.");
+            return;
+        }
+        System.out.println("Entrez votre email :");
+        mail = questionNonVide();
+
+        if (chargerClientParMail(db, mail)) {
+            System.out.println("Ce compte existe déjà, vous êtes connecté avec l'email : " + mail);
+            compteIncomplet = false;
+            return;
+        }
+
+        insererClient(db);
+        System.out.println("Vous avez créé votre compte (id " + id_client + ").");
+        questionDonnees(db);
+    }
+
+    private static void creerCompteComplet(OracleDB db, String mail_temp) throws SQLException {
+
+        if (Objects.equals(id_client, "")) {
+            int newId = genererNouvelIdClient(db);
+            id_client = String.valueOf(newId);
+        }
+
+        System.out.print("Entrez votre nom : ");
+        scanner.nextLine();
+        String nom = questionNonVide();
+
+        System.out.print("Entrez votre prénom : ");
+        String prenom = questionNonVide();
+
+        System.out.print("Entrez votre numéro de téléphone : ");
+        String numTel = questionNonVide();
+
+        Statement stmt = db.getConnection().createStatement();
+        ResultSet rsCheck = stmt.executeQuery("SELECT 1 FROM Client WHERE IdClient = " + id_client);
+        if (!rsCheck.next()) {
+            stmt.executeUpdate("INSERT INTO Client (IdClient) VALUES (" + id_client + ")");
+        }
+        rsCheck.close();
+
+        System.out.println("Entrez vos adresses (au moins 1).");
+
+        List<String> adresses = new ArrayList<>();
+        boolean stop = false;
+
+        while (!stop) {
+            System.out.print("Adresse : ");
+            String addr = questionNonVide();
+
+            if (adresses.contains(addr)) {
+                System.out.println("Cette adresse est déjà entrée !");
+                continue;
+            }
+
+            if (adresseExisteDeja(db, addr)) {
+                System.out.println("Cette adresse existe déjà dans votre compte !");
+                continue;
+            }
+
+            adresses.add(addr);
+
+            System.out.print("Ajouter une autre adresse ? (y/n) : ");
+            if (yesNoQuestion().equals("n")) {
+                stop = true;
+            }
+        }
+
+        for (String addr : adresses) {
+            String sqlAddr = "INSERT INTO Adresse_Livraison (AdresseLiv, IdClient) VALUES ('"
+                    + addr + "', " + id_client + ")";
+            stmt.executeUpdate(sqlAddr);
+        }
+
+        String sqlCNO =
+                "INSERT INTO Client_Non_Oublie (IdClient, NomC, PrenomC, NumTelC, EmailC) VALUES ("
+                        + id_client + ", '"
+                        + nom + "', '"
+                        + prenom + "', '"
+                        + numTel + "', '"
+                        + mail_temp + "')";
+
+        stmt.executeUpdate(sqlCNO);
+
+        stmt.close();
+
+        mail = mail_temp;
+        compteIncomplet = false;
+
+        db.getConnection().commit();
+        System.out.println("Votre compte complet a été créé avec succès !");
+    }
+
+    private static int genererNouvelIdClient(OracleDB db) throws SQLException{
+        String sql = "SELECT NVL(MAX(IdClient), 0) + 1 AS newId FROM Client";
+        Statement stmt = db.getConnection().createStatement();
+        ResultSet rs = stmt.executeQuery(sql);
+
+        rs.next();
+        int newId = rs.getInt("newId");
+
+        stmt.close();
+        return newId;
+    }
+
+    private static void insererClient(OracleDB db) throws SQLException {
+
+        int newId = genererNouvelIdClient(db);
+        if (newId < 0) {
+            System.out.println("Impossible de créer un nouvel ID client.");
+            return;
+        }
+
+        id_client = String.valueOf(newId);
+
+        String sqlClient = "INSERT INTO Client (IdClient) VALUES (" + id_client + ")";
+        Statement stmt = db.getConnection().createStatement();
+        stmt.executeUpdate(sqlClient);
+        stmt.close();
+
+        System.out.println("Client ajouté (IdClient = " + id_client + ")");
+        db.getConnection().commit();
+    }
+
+    private static boolean adresseExisteDeja(OracleDB db, String addr) throws SQLException {
+        String sql = "SELECT 1 FROM Adresse_Livraison WHERE AdresseLiv = '" + addr
+                + "' AND IdClient = " + id_client;
+
+        Statement stmt = db.getConnection().createStatement();
+        ResultSet rs = stmt.executeQuery(sql);
+
+        boolean exists = rs.next();
+
+        rs.close();
+        stmt.close();
+
+        return exists;
+    }
+
+    private static void anonymiserClient(OracleDB db) throws SQLException{
+        Statement stmt = db.getConnection().createStatement();
+
+        String sql1 =
+                "DELETE FROM Client_Non_Oublie WHERE IdClient = " + id_client;
+        stmt.executeUpdate(sql1);
+
+        String sql2 =
+                "DELETE FROM Adresse_Livraison WHERE IdClient = " + id_client;
+        stmt.executeUpdate(sql2);
+
+        stmt.close();
+
+        compteIncomplet = true;
+        mail = "";
+        id_client = "";
+
+        db.getConnection().commit();
+        System.out.println("Vos données personnelles ont été anonymisées.");
+    }
+
+    private static void questionDonnees(OracleDB db) throws SQLException {
+
+        clearScreen();
+
+        if (compteIncomplet) {
+            System.out.println("Voulez-vous entrer vos informations personnelles ? (y/n)");
+            String rep = yesNoQuestion();
+
+            if (rep.equals("y")) {
+                creerCompteComplet(db, mail);
+                compteIncomplet = false;
+                System.out.println("Merci, vos informations ont été enregistrées.");
+            } else {
+                System.out.println("Pas de souci, vous pourrez les ajouter plus tard.");
             }
         } else {
-            System.out.println("Pas de souci ! Vous pourrez vous inscrire plus tard");
+            System.out.println("Voulez-vous supprimer (anonymiser) vos informations personnelles ? (y/n)");
+            String rep = yesNoQuestion();
+
+            if (rep.equals("y")) {
+                anonymiserClient(db);
+            } else {
+                System.out.println("Merci pour votre confiance.");
+            }
         }
+
         pause();
     }
 
@@ -167,14 +398,14 @@ public class MenuApp {
                 System.out.println("3. Passer une commande (connexion requise)");
                 System.out.println("4. Inscription/connection");
                 System.out.println("0. Retour");
-            } else if (clientOublie) {
-                System.out.println("3. Passer une commande (désactivé : anonymat)");
-                System.out.println("4. Anonymité");
+            } else if (compteIncomplet) {
+                System.out.println("3. Passer une commande (désactivé : compte incomplet)");
+                System.out.println("4. Données personnelles");
                 System.out.println("5. Deconnection");
                 System.out.println("0. Retour");
             } else {
                 System.out.println("3. Passer une commande");
-                System.out.println("4. Anonymité");
+                System.out.println("4. Données personnelles");
                 System.out.println("5. Deconnection");
                 System.out.println("0. Retour");
             }
@@ -190,8 +421,8 @@ public class MenuApp {
                     if (Objects.equals(id_client, "")) {
                         System.out.println("Vous devez être connecté(e) pour passer une commande.");
                         pause();
-                    } else if (clientOublie) {
-                        System.out.println("Impossible de passer commande en mode anonyme.");
+                    } else if (compteIncomplet) {
+                        System.out.println("Impossible de passer commande tant que vos données personnelles sont absentes.");
                         pause();
                     } else {
                         Passer_Commande();
@@ -199,7 +430,14 @@ public class MenuApp {
                 }
                 case 4 -> {
                     if (!Objects.equals(id_client, "")) {
-                        questionAnonymisation();
+                        try {
+                            OracleDB db = new OracleDB();
+                            questionDonnees(db);
+                            db.close();
+                        } catch (Exception e) {
+                            System.out.println("Impossible de mettre à jour vos données pour le moment.");
+                            pause();
+                        }
                     } else {
                         connectionDuClient();
                     }
@@ -207,7 +445,8 @@ public class MenuApp {
                 case 5 -> {
                     if (!id_client.isEmpty()) {
                         id_client = "";
-                        clientOublie = true;
+                        compteIncomplet = true;
+                        mail = "";
                     } else {
                         System.out.println("Choix invalide !");
                         pause();
@@ -704,29 +943,14 @@ public class MenuApp {
     // ANONYMISATION
     // ============================
     public static void questionAnonymisation() {
-        clearScreen();
-        if (clientOublie) {
-            System.out.println("Voulez vous entrer vos informations personnelles ? (y/n)");
-            String reponse = scanner.next();
-            if (Objects.equals(reponse, "y")) {
-                clientOublie = false;
-                System.out.println("Merci, vous n'êtes plus en mode anonyme.");
-            } else if (Objects.equals(reponse, "n")) {
-                System.out.println("Pas de soucis, vous pourrez les ajouter plus tard. ");
-            }
+        try {
+            OracleDB db = new OracleDB();
+            questionDonnees(db);
+            db.close();
+        } catch (Exception e) {
+            System.out.println("Impossible de gérer l'anonymisation pour le moment.");
             pause();
-            return;
         }
-
-        System.out.println("Voulez vous supprimer vos informations personnelles ? (y/n)");
-        String reponse = scanner.next();
-        if (Objects.equals(reponse, "y")) {
-            clientOublie = true;
-            System.out.println("Vos informations ont été retirées. Vous êtes en mode anonyme.");
-        } else if (Objects.equals(reponse, "n")) {
-            System.out.println("Merci pour votre confiance");
-        }
-        pause();
     }
 
 
