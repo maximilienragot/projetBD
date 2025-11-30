@@ -7,8 +7,8 @@ import java.util.List;
 public class OracleDB {
 
     private static final String URL = "jdbc:oracle:thin:@oracle1.ensimag.fr:1521:oracle1";
-    private static final String USER = "touatia";
-    private static final String PASS = "touatia";
+    private static final String USER = "elhadarm";
+    private static final String PASS = "elhadarm";
 
     private Connection conn;
     public Connection getConnection() {
@@ -20,7 +20,9 @@ public class OracleDB {
         try {
             Class.forName("oracle.jdbc.driver.OracleDriver");
             this.conn = DriverManager.getConnection(URL, USER, PASS);
+            System.out.println("Connexion Oracle reussie");
         } catch (Exception e) {
+            System.out.println("Echec connexion Oracle");
             e.printStackTrace();
         }
     }
@@ -29,7 +31,7 @@ public class OracleDB {
     public void runQuery(String sql) {
         try {
             if (conn == null) {
-                System.out.println("❌ Impossible d'exécuter la requête : pas de connexion.");
+                System.out.println("Impossible d'executer la requete : pas de connexion.");
                 return;
             }
 
@@ -114,6 +116,7 @@ public class OracleDB {
     public void close() {
         try {
             if (conn != null) conn.close();
+            System.out.println("Connexion fermee.");
         } catch (Exception e) {
             e.printStackTrace();
         }
