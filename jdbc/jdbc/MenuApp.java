@@ -2114,92 +2114,151 @@ public class MenuApp {
 
     public static void ajoutProduit() {
         clearScreen();
-        System.out.println("Voulez vous enregistrer un produit ? (y/n)");
-        if (yesNoQuestion().equals("n")) return;
+        System.out.println("Enregistrement d'un produit (obligatoire).");
 
         OracleDB db = new OracleDB();
 
         try {
-            db.getConnection().setAutoCommit(false);
-            // --- Génération ID produit ---
+            Connection conn = db.getConnection();
+            conn.setAutoCommit(false);
+
+            // Génération ID produit
             String sql = "SELECT NVL(MAX(idProduit), 0) + 1 AS newId FROM Produit";
-            Statement stmt = db.getConnection().createStatement();
+            Statement stmt = conn.createStatement();
             ResultSet rs = stmt.executeQuery(sql);
             rs.next();
-
             int newIdProduit = rs.getInt("newId");
             rs.close();
             stmt.close();
 
-            // --- Saisie informations produit ---
-            System.out.print("Entrez le nom du produit : ");
-            String nomProduit = demanderValeurNonVide("Entrez le nom du produit : ");
+            // Saisie produit
+            String nomProduit = demanderValeurNonVide("Nom du produit : ");
+            String categorie = demanderValeurNonVide("Categorie : ");
+            String description = demanderValeurNonVide("Description : ");
+            String carSpe = demanderValeurNonVide("Caractéristiques spéciales : ");
 
-            System.out.print("Entrez la catégorie : ");
-            String categorie = demanderValeurNonVide("Entrez la catégorie : ");
+            System.out.println("Producteurs existants :");
+            db.runQuery("SELECT email_producteur, nom FROM Producteur");
 
-            System.out.print("Entrez la description : ");
-            String description = demanderValeurNonVide("Entrez la description : ");
-
-            String carSpe = demanderValeurNonVide("Entrez la caractéristique spéciale : ");
-
-            System.out.println("Voici les producteurs :");
-            db.runQuery("SELECT * FROM Producteur");
-
-            // --- Vérification producteur ---
+            // Email producteur
             String mailProd = "";
+            while (mailProd.isEmpty()) {
+                mailProd = demanderValeurNonVide("Email du producteur : ");
+                PreparedStatement checkProd = conn.prepareStatement(
+                        "SELECT 1 FROM Producteur WHERE email_producteur = ?"
+                );
+                checkProd.setString(1, mailProd);
+                ResultSet rp = checkProd.executeQuery();
 
-            while (mailProd.equals("")) {
-                mailProd = demanderValeurNonVide("Entrez l'email du producteur : ");
-
-                String verif = "SELECT 1 FROM Producteur WHERE email_producteur = ?";
-                PreparedStatement ps = db.getConnection().prepareStatement(verif);
-                ps.setString(1, mailProd);
-
-                ResultSet rs1 = ps.executeQuery();
-
-                if (!rs1.next()) {
-                    System.out.println("Producteur introuvable. Continuer ? (y/n)");
-                    if (yesNoQuestion().equals("n")) {
-                        rs1.close();
-                        ps.close();
-                        db.close();
-                        return;
-                    }
-                    System.out.println("Veuillez entrer un email valide.");
+                if (!rp.next()) {
+                    System.out.println("Producteur introuvable.");
                     mailProd = "";
                 }
 
-                rs1.close();
-                ps.close();
+                rp.close();
+                checkProd.close();
             }
 
-            // --- Insertion produit ---
+            // Insertion produit
             String sqlInsert = """
             INSERT INTO Produit(IdProduit, nom_Produit, categorie, description, CaracteristiquesSpe, email_Producteur)
             VALUES (?, ?, ?, ?, ?, ?)
         """;
 
-            PreparedStatement insert = db.getConnection().prepareStatement(sqlInsert);
+            PreparedStatement insert = conn.prepareStatement(sqlInsert);
             insert.setInt(1, newIdProduit);
             insert.setString(2, nomProduit);
             insert.setString(3, categorie);
             insert.setString(4, description);
             insert.setString(5, carSpe);
             insert.setString(6, mailProd);
-
             insert.executeUpdate();
-            db.getConnection().commit();
             insert.close();
 
-            System.out.println("Produit enregistré !");
+            // Obligation d'ajouter au moins une période
+            boolean auMoinsUnePeriode = false;
+
+            while (!auMoinsUnePeriode) {
+
+                System.out.println("Enregistrement d'une période de disponibilité obligatoire.");
+
+                String dateDeb = demanderValeurNonVide("Date début (YYYY-MM-DD) : ");
+                String dateFin = demanderValeurNonVide("Date fin (YYYY-MM-DD) : ");
+
+                // Vérifier validité dateDeb < dateFin
+                PreparedStatement testDates = conn.prepareStatement(
+                        "SELECT CASE WHEN TO_DATE(?, 'YYYY-MM-DD') < TO_DATE(?, 'YYYY-MM-DD') THEN 1 ELSE 0 END AS ok FROM dual"
+                );
+                testDates.setString(1, dateDeb);
+                testDates.setString(2, dateFin);
+                ResultSet rtest = testDates.executeQuery();
+                rtest.next();
+
+                if (rtest.getInt("ok") == 0) {
+                    System.out.println("Intervalle de dates invalide.");
+                    rtest.close();
+                    testDates.close();
+                    continue;
+                }
+
+                rtest.close();
+                testDates.close();
+
+                // Vérifier si saison existe
+                PreparedStatement checkSeason = conn.prepareStatement(
+                        "SELECT 1 FROM Saisonalite WHERE date_debut = TO_DATE(?, 'YYYY-MM-DD') AND date_fin = TO_DATE(?, 'YYYY-MM-DD')"
+                );
+                checkSeason.setString(1, dateDeb);
+                checkSeason.setString(2, dateFin);
+                ResultSet rsSeason = checkSeason.executeQuery();
+
+                boolean saisonExiste = rsSeason.next();
+                rsSeason.close();
+                checkSeason.close();
+
+                // Si elle n’existe pas, on la crée
+                if (!saisonExiste) {
+                    PreparedStatement insSeason = conn.prepareStatement(
+                            "INSERT INTO Saisonalite(date_debut, date_fin) VALUES (TO_DATE(?, 'YYYY-MM-DD'), TO_DATE(?, 'YYYY-MM-DD'))"
+                    );
+                    insSeason.setString(1, dateDeb);
+                    insSeason.setString(2, dateFin);
+                    insSeason.executeUpdate();
+                    insSeason.close();
+                }
+
+                // Insert dans Est_Disponible
+                PreparedStatement insED = conn.prepareStatement("""
+                INSERT INTO Est_Disponible(IdProduit, date_debut, date_fin)
+                VALUES (?, TO_DATE(?, 'YYYY-MM-DD'), TO_DATE(?, 'YYYY-MM-DD'))
+            """);
+                insED.setInt(1, newIdProduit);
+                insED.setString(2, dateDeb);
+                insED.setString(3, dateFin);
+                insED.executeUpdate();
+                insED.close();
+
+                auMoinsUnePeriode = true;
+
+                System.out.println("Période enregistrée.");
+                System.out.println("Ajouter une autre période ? (y/n)");
+                if (yesNoQuestion().equals("y")) {
+                    auMoinsUnePeriode = true;
+                } else {
+                    break;
+                }
+            }
+
+            conn.commit();
+            System.out.println("Produit et disponibilités enregistrés.");
         }
-        catch (SQLException e) {
-            System.out.println("Erreur pendant l'enregistrement.");
-            try { db.getConnection().rollback(); } catch (SQLException ignored) {}
+        catch (Exception e) {
+            System.out.println("Erreur lors de l'enregistrement du produit.");
+            try { db.getConnection().rollback(); } catch (Exception ignored) {}
         }
 
         db.close();
+        pause();
     }
 
     public static void suppProduit() {
