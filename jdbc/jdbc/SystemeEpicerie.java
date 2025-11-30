@@ -8,41 +8,32 @@ import java.util.ArrayList;
 public class SystemeEpicerie {
 
     private static final int MARGE_TOLERE_EXPIRATION = 7;
-    private static final double REDUCTION = 0.5;
-    private static boolean maintenance = false;
+    private static final double REDUCTION = 0.9; // réduction appliquée à chaque mise à jour
 
     // Chaque entrée : [nomProduit, qte, joursRestants, typeDate]
     private static final ArrayList<String[]> produitBientotPerime = new ArrayList<>();
-    private static final ArrayList<String> lotsDejaReduits = new ArrayList<>();
     private static int nombreAlertePeremption;
 
-
     public static void main(String[] args) {
-
 
         while (true) {
             try {
                 mettreAJourProduitsBientotPerimes();
-            }
-            catch (Exception e) {
+            } catch (Exception e) {
                 System.out.println("Problème lors de la mise à jour des produits en solde.");
                 e.printStackTrace();
             }
 
-            // Pause entre deux mises à jour
             try {
-                Thread.sleep(60_000); // 60 secondes
+                Thread.sleep(10_000);
             } catch (InterruptedException ignored) {
-                System.out.println("Mise à jour interrompue des produits en solde. ");
+                System.out.println("Mise à jour interrompue.");
             }
         }
     }
 
-
-
-
     // =====================================================
-    //   GENERER NOUVELLE PERTE
+    //       GENERER NOUVELLE PERTE
     // =====================================================
     private static int genererNouvellePerteId(OracleDB db) throws SQLException {
 
@@ -73,15 +64,13 @@ public class SystemeEpicerie {
 
         OracleDB db = new OracleDB();
 
-        try {
-            // désactiver l'autocommit AVANT toute transaction SQL
-            db.getConnection().setAutoCommit(false);
-        } catch (SQLException ignored) {}
+        try { db.getConnection().setAutoCommit(false); } catch (Exception ignored) {}
 
         // =====================================================
-        // 1️⃣ LOTS BIENTÔT PÉRIMÉS + RÉDUCTIONS
+        //     1) LOTS BIENTÔT PÉRIMÉS
         // =====================================================
         try {
+
             String sqlBientot = """
             SELECT lp.IdArticle,
                    lp.date_reception,
@@ -102,35 +91,33 @@ public class SystemeEpicerie {
             ResultSet rs = pstmt.executeQuery();
 
             while (rs.next()) {
-
                 int idArticle = rs.getInt("IdArticle");
                 LocalDate dateReception = rs.getDate("date_reception").toLocalDate();
                 LocalDate datePeremption = rs.getDate("date_peremption").toLocalDate();
 
-                String lotKey = idArticle + "-" + dateReception;
-
                 String nom = rs.getString("nom_produit");
                 int qte = rs.getInt("Qte_dispo");
                 String typeDate = rs.getString("type_date");
+
                 long joursRestants = ChronoUnit.DAYS.between(aujourdHui, datePeremption);
 
                 produitBientotPerime.add(new String[]{
-                        nom, String.valueOf(qte), String.valueOf(joursRestants), typeDate
+                        nom,
+                        String.valueOf(qte),
+                        String.valueOf(joursRestants),
+                        typeDate
                 });
 
                 nombreAlertePeremption++;
 
-                // appliquer la réduction une seule fois
-                if (!lotsDejaReduits.contains(lotKey)) {
-                    reduirePrixArticle(db, idArticle);
-                    lotsDejaReduits.add(lotKey);
-                }
+                // appliquer réduction
+                reduirePrixArticle(db, idArticle);
             }
 
             rs.close();
             pstmt.close();
 
-            db.getConnection().commit(); // ✓ commit de cette transaction
+            db.getConnection().commit();
 
         } catch (Exception e) {
             try { db.getConnection().rollback(); } catch (Exception ignored) {}
@@ -138,11 +125,10 @@ public class SystemeEpicerie {
         }
 
         // =====================================================
-        // 2️⃣ LOTS PÉRIMÉS → PERTE + SUPPRESSION
+        //     2) LOTS PÉRIMÉS → PERTE + SUPPRESSION
         // =====================================================
-
         try {
-            // réactiver la transaction (au cas où l’autocommit aurait changé)
+
             db.getConnection().setAutoCommit(false);
 
             String sqlPerimes = """
@@ -156,14 +142,14 @@ public class SystemeEpicerie {
             """;
 
             Statement stmt = db.getConnection().createStatement();
-            ResultSet rsMajPerime = stmt.executeQuery(sqlPerimes);
+            ResultSet rs = stmt.executeQuery(sqlPerimes);
 
-            while (rsMajPerime.next()) {
+            while (rs.next()) {
 
-                int idArticle = rsMajPerime.getInt("IdArticle");
-                LocalDate dateReception = rsMajPerime.getDate("date_reception").toLocalDate();
-                int qte = rsMajPerime.getInt("Qte_dispo");
-                String unite = rsMajPerime.getString("Unite");
+                int idArticle = rs.getInt("IdArticle");
+                LocalDate dateReception = rs.getDate("date_reception").toLocalDate();
+                int qte = rs.getInt("Qte_dispo");
+                String unite = rs.getString("Unite");
 
                 int idPerte = genererNouvellePerteId(db);
 
@@ -181,7 +167,8 @@ public class SystemeEpicerie {
 
                 String deleteLot = """
                 DELETE FROM Lot_Produit
-                WHERE IdArticle = ? AND date_reception = ?
+                WHERE IdArticle = ? 
+                AND date_reception = ?
                 """;
 
                 PreparedStatement psDel = db.getConnection().prepareStatement(deleteLot);
@@ -191,10 +178,10 @@ public class SystemeEpicerie {
                 psDel.close();
             }
 
-            rsMajPerime.close();
+            rs.close();
             stmt.close();
 
-            db.getConnection().commit(); // ✓ commit final
+            db.getConnection().commit();
 
         } catch (Exception e) {
             try { db.getConnection().rollback(); } catch (Exception ignored) {}
@@ -205,7 +192,7 @@ public class SystemeEpicerie {
     }
 
     // =====================================================
-    //  RÉDUCTION UNIQUE SUR UN ARTICLE
+    //     RÉDUCTION DU PRIX
     // =====================================================
     private static void reduirePrixArticle(OracleDB db, int idArticle) throws SQLException {
 
@@ -223,7 +210,7 @@ public class SystemeEpicerie {
     }
 
     // =====================================================
-    // GETTERS
+    //     GETTERS
     // =====================================================
     public static ArrayList<String[]> getProduitBientotPerime() {
         return produitBientotPerime;
@@ -231,9 +218,5 @@ public class SystemeEpicerie {
 
     public static int getNombreAlertePeremption() {
         return nombreAlertePeremption;
-    }
-
-    public static boolean isMaintenance() {
-        return maintenance;
     }
 }

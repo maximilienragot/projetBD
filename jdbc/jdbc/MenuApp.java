@@ -33,6 +33,9 @@
                 "SELECT ar.idArticle, c.type, c.capacite, c.unite, c.caractere, ar.prixttc FROM Contenant c INNER JOIN Article ar ON c.idArticle = ar.idArticle");
 
         public static void main(String[] args) {
+            Thread peremptionThread = new Thread(() -> SystemeEpicerie.main(null));
+            peremptionThread.setDaemon(true);
+            peremptionThread.start();
             menuPrincipal();
         }
 
@@ -55,82 +58,81 @@
         }
 
 
-
-
-    // -----------------------------------------------------------
-    // ------------------------- 1) CONNEXION ---------------------
-    // -----------------------------------------------------------
+        // -----------------------------------------------------------
+        // ------------------------- 1) CONNEXION ---------------------
+        // -----------------------------------------------------------
         public static void connectionDuClient() {
 
-        System.out.println("Avez-vous un compte ? (y/n)");
-        String reponse = yesNoQuestion();
-        OracleDB db =  new OracleDB();
-        try {
-            if (reponse.equals("y")) {
-                connexionClient(db);
-            } else {
-                inscriptionOuPas(db);
-            }
-        }  catch (Exception e) {
-            try {db.getConnection().rollback();
-            } catch (Exception e2){}
+            System.out.println("Avez-vous un compte ? (y/n)");
+            String reponse = yesNoQuestion();
+            OracleDB db = new OracleDB();
+            try {
+                db.getConnection().setAutoCommit(false);
+                if (reponse.equals("y")) {
+                    connexionClient(db);
+                } else {
+                    inscriptionOuPas(db);
+                }
+            } catch (Exception e) {
+                try {
+                    db.getConnection().rollback();
+                } catch (Exception e2) {
+                }
 
+            }
         }
-    }
 
 
         private static void connexionClient(OracleDB db) throws SQLException {
-                String mail_temp;
+            String mail_temp;
 
-                while (true) {
-                    System.out.println("Veuillez entrer un mail :");
-                    mail_temp = scanner.next();   // lit le mail (un mot)
+            while (true) {
+                System.out.println("Veuillez entrer un mail :");
+                mail_temp = scanner.next();   // lit le mail (un mot)
 
-                    if (!mail_temp.isEmpty()) break;
+                if (!mail_temp.isEmpty()) break;
 
-                    clearScreen();
-                    System.out.println("Mail non valide ! Voulez-vous toujours vous connecter ? (y/n)");
+                clearScreen();
+                System.out.println("Mail non valide ! Voulez-vous toujours vous connecter ? (y/n)");
+                String reponse = yesNoQuestion();
+                if (reponse.equals("n")) {
+                    System.out.println("Pas de souci, vous pourrez vous connecter plus tard.");
+                    return;
+                }
+            }
+
+            if (mailExisteDansBDD(db, mail_temp)) {
+                mail = mail_temp;
+                System.out.println("On vous a connecté avec ce mail : " + mail);
+                questionDonnees();
+            } else {
+                System.out.println("Vous n'êtes pas inscrit. Voulez-vous vous inscrire avec ce mail ? (y/n)");
+
+                String repInscription = yesNoQuestion();   // <-- ceci fonctionnera enfin
+
+                if (repInscription.equals("y")) {
+                    mail = mail_temp;
+                    insererClient(db);
+                    System.out.println("Voulez vous entrer vos données personelles ?");
                     String reponse = yesNoQuestion();
                     if (reponse.equals("n")) {
-                        System.out.println("Pas de souci, vous pourrez vous connecter plus tard.");
+                        System.out.println("Pas de souci, vous pourrez les entrer plus tard." +
+                                "On vous etes actuellementconnecté avec ce mail : " + mail);
                         return;
                     }
-                }
+                    creerCompteComplet(db, mail);
+                    System.out.println("On vous a inscrit avec ce mail : " + mail);
 
-                if (mailExisteDansBDD(db, mail_temp)) {
-                    mail = mail_temp;
-                    System.out.println("On vous a connecté avec ce mail : " + mail);
-                    questionDonnees(db);
                 } else {
-                    System.out.println("Vous n'êtes pas inscrit. Voulez-vous vous inscrire avec ce mail ? (y/n)");
-
-                    String repInscription = yesNoQuestion();   // <-- ceci fonctionnera enfin
-
-                    if (repInscription.equals("y")) {
-                        mail = mail_temp;
-                        insererClient(db);
-                        System.out.println("Voulez vous entrer vos données personelles ?");
-                        String reponse = yesNoQuestion();
-                        if (reponse.equals("n")) {
-                            System.out.println("Pas de souci, vous pourrez les entrer plus tard." +
-                                    "On vous etes actuellementconnecté avec ce mail : " + mail);
-                            return;
-                        }
-                        creerCompteComplet(db, mail);
-                        System.out.println("On vous a inscrit avec ce mail : " + mail);
-
-                    } else {
-                        System.out.println("Pas de souci ! Vous pourrez vous inscrire plus tard.");
-                    }
+                    System.out.println("Pas de souci ! Vous pourrez vous inscrire plus tard.");
                 }
+            }
         }
 
 
-
-
-    // -----------------------------------------------------------
-    // ----------------------- 2) INSCRIPTION ---------------------
-    // -----------------------------------------------------------
+        // -----------------------------------------------------------
+        // ----------------------- 2) INSCRIPTION ---------------------
+        // -----------------------------------------------------------
 
         private static void inscriptionOuPas(OracleDB db) throws SQLException {
 
@@ -140,39 +142,39 @@
                 System.out.println("Pas de souci, vous pourrez vous inscrire plus tard.");
                 return;
             }
-                System.out.println("Entrez votre mail :");
-                String mail_temp = Question();
+            System.out.println("Entrez votre mail :");
+            String mail_temp = Question();
 
-                // ---------- 1) mail n'existe pas : inscription ----------
-                if (!mailExisteDansBDD(db, mail_temp)) {
-                    mail = mail_temp;
-                    insererClient(db);   // INSERT COMPLET
-                    System.out.println("Vous avez créé votre compte.");
+            // ---------- 1) mail n'existe pas : inscription ----------
+            if (!mailExisteDansBDD(db, mail_temp)) {
+                mail = mail_temp;
+                insererClient(db);   // INSERT COMPLET
+                System.out.println("Vous avez créé votre compte.");
 
-                    questionDonnees(db);     // <---- correct
+                questionDonnees();     // <---- correct
 
-                    return;
-                }
+                return;
+            }
 
-                // ---------- 2) mail existe déjà ----------
-                System.out.println("Cette adresse existe déjà. Est-ce vous ? (y/n)");
-                if (yesNoQuestion().equals("y")) {
-                    mail = mail_temp;
-                    System.out.println("On vous a connecté avec ce mail : " + mail);
-                    questionDonnees(db);     // <---- il manquait ici !
-                    return;
-                }
+            // ---------- 2) mail existe déjà ----------
+            System.out.println("Cette adresse existe déjà. Est-ce vous ? (y/n)");
+            if (yesNoQuestion().equals("y")) {
+                mail = mail_temp;
+                System.out.println("On vous a connecté avec ce mail : " + mail);
+                questionDonnees();     // <---- il manquait ici !
+                return;
+            }
 
-                // ---------- 3) mail existe mais ce n'est pas lui ----------
-                System.out.println("Voulez-vous toujours vous inscrire ? (y/n)");
-                if (yesNoQuestion().equals("n")) {
-                    System.out.println("Pas de souci, vous pourrez vous inscrire plus tard.");
-                    return;
-                }
-                connectionDuClient();
+            // ---------- 3) mail existe mais ce n'est pas lui ----------
+            System.out.println("Voulez-vous toujours vous inscrire ? (y/n)");
+            if (yesNoQuestion().equals("n")) {
+                System.out.println("Pas de souci, vous pourrez vous inscrire plus tard.");
+                return;
+            }
+            connectionDuClient();
         }
 
-        private static void creerCompteComplet (OracleDB db, String mail_temp) throws SQLException {
+        private static void creerCompteComplet(OracleDB db, String mail_temp) throws SQLException {
 
             int newId = genererNouvelIdClient(db);
             if (newId < 0) {
@@ -192,86 +194,86 @@
 
             System.out.print("Entrez votre numéro de téléphone : ");
             String numTel = scanner.nextLine().trim();
-                Statement stmt = db.getConnection().createStatement();
+            Statement stmt = db.getConnection().createStatement();
 
-                // 1) INSERT dans Client
-                stmt.executeUpdate("INSERT INTO Client (IdClient) VALUES (" + id_client + ")");
+            // 1) INSERT dans Client
+            stmt.executeUpdate("INSERT INTO Client (IdClient) VALUES (" + id_client + ")");
 
-                // 2) MULTIPLES ADRESSES AVEC ANTI-DOUBLON
-                System.out.println("Entrez vos adresses (au moins 1).");
+            // 2) MULTIPLES ADRESSES AVEC ANTI-DOUBLON
+            System.out.println("Entrez vos adresses (au moins 1).");
 
-                List<String> adresses = new ArrayList<>();
-                boolean stop = false;
+            List<String> adresses = new ArrayList<>();
+            boolean stop = false;
 
-                while (!stop) {
-                    System.out.print("Adresse : ");
-                    String addr = scanner.nextLine().trim();
+            while (!stop) {
+                System.out.print("Adresse : ");
+                String addr = scanner.nextLine().trim();
 
-                    if (addr.isEmpty()) {
-                        System.out.println("Adresse vide invalide !");
-                        continue;
-                    }
-
-                    // Vérification doublon LOCAL
-                    if (adresses.contains(addr)) {
-                        System.out.println("⚠ Cette adresse est déjà entrée !");
-                        continue;
-                    }
-
-                    // Vérification doublon dans la BDD
-                    if (adresseExisteDeja(db, addr)) {
-                        System.out.println("⚠ Cette adresse existe déjà dans votre compte !");
-                        continue;
-                    }
-
-                    // Ajout en liste
-                    adresses.add(addr);
-
-                    System.out.print("Ajouter une autre adresse ? (y/n) : ");
-                    if (yesNoQuestion().equals("n")) {
-                        stop = true;
-                    }
+                if (addr.isEmpty()) {
+                    System.out.println("Adresse vide invalide !");
+                    continue;
                 }
 
-                // Insertion BDD de toutes les adresses
-                for (String addr : adresses) {
-                    String sqlAddr = "INSERT INTO Adresse_Livraison (AdresseLiv, IdClient) VALUES ('"
-                            + addr + "', " + id_client + ")";
-                    stmt.executeUpdate(sqlAddr);
+                // Vérification doublon LOCAL
+                if (adresses.contains(addr)) {
+                    System.out.println("⚠ Cette adresse est déjà entrée !");
+                    continue;
                 }
 
-                // 3) INSERT dans Client_Non_Oublie
-                String sqlCNO =
-                        "INSERT INTO Client_Non_Oublie (IdClient, NomC, PrenomC, NumTelC, EmailC) VALUES ("
-                                + id_client + ", '"
-                                + nom + "', '"
-                                + prenom + "', '"
-                                + numTel + "', '"
-                                + mail_temp + "')";
+                // Vérification doublon dans la BDD
+                if (adresseExisteDeja(db, addr)) {
+                    System.out.println("⚠ Cette adresse existe déjà dans votre compte !");
+                    continue;
+                }
 
-                stmt.executeUpdate(sqlCNO);
+                // Ajout en liste
+                adresses.add(addr);
 
-                stmt.close();
-                db.close();
+                System.out.print("Ajouter une autre adresse ? (y/n) : ");
+                if (yesNoQuestion().equals("n")) {
+                    stop = true;
+                }
+            }
 
-                mail = mail_temp;
-                compteIncomplet = false;
+            // Insertion BDD de toutes les adresses
+            for (String addr : adresses) {
+                String sqlAddr = "INSERT INTO Adresse_Livraison (AdresseLiv, IdClient) VALUES ('"
+                        + addr + "', " + id_client + ")";
+                stmt.executeUpdate(sqlAddr);
+            }
 
-                System.out.println("Votre compte complet a été créé avec succès !");
-                db.getConnection().commit();
+            // 3) INSERT dans Client_Non_Oublie
+            String sqlCNO =
+                    "INSERT INTO Client_Non_Oublie (IdClient, NomC, PrenomC, NumTelC, EmailC) VALUES ("
+                            + id_client + ", '"
+                            + nom + "', '"
+                            + prenom + "', '"
+                            + numTel + "', '"
+                            + mail_temp + "')";
+
+            stmt.executeUpdate(sqlCNO);
+
+            stmt.close();
+            db.close();
+
+            mail = mail_temp;
+            compteIncomplet = false;
+
+            System.out.println("Votre compte complet a été créé avec succès !");
+            db.getConnection().commit();
         }
 
 
-        private static int genererNouvelIdClient(OracleDB db) throws SQLException{
+        private static int genererNouvelIdClient(OracleDB db) throws SQLException {
             String sql = "SELECT NVL(MAX(IdClient), 0) + 1 AS newId FROM Client";
-                Statement stmt = db.getConnection().createStatement();
-                ResultSet rs = stmt.executeQuery(sql);
+            Statement stmt = db.getConnection().createStatement();
+            ResultSet rs = stmt.executeQuery(sql);
 
-                rs.next();
-                int newId = rs.getInt("newId");
+            rs.next();
+            int newId = rs.getInt("newId");
 
-                stmt.close();
-                return newId;
+            stmt.close();
+            return newId;
         }
 
         // ------------------- 5) Ajouter un client -------------------
@@ -286,33 +288,29 @@
             id_client = String.valueOf(newId);
 
             String sqlClient = "INSERT INTO Client (IdClient) VALUES (" + id_client + ")";
-                Statement stmt = db.getConnection().createStatement();
-                stmt.executeUpdate(sqlClient);
+            Statement stmt = db.getConnection().createStatement();
+            stmt.executeUpdate(sqlClient);
 
-                stmt.close();
+            stmt.close();
 
-                System.out.println("Client ajouté (IdClient = " + id_client + ")");
+            System.out.println("Client ajouté (IdClient = " + id_client + ")");
         }
 
 
+        // -----------------------------------------------------------
+        // -------------------- 3) Vérifier Mail ----------------------
+        // -----------------------------------------------------------
 
-    // -----------------------------------------------------------
-    // -------------------- 3) Vérifier Mail ----------------------
-    // -----------------------------------------------------------
-
-        private static boolean mailExisteDansBDD(OracleDB db, String mail_temp) throws SQLException{
+        private static boolean mailExisteDansBDD(OracleDB db, String mail_temp) throws SQLException {
             String sql = "SELECT 1 FROM Adresse_Livraison WHERE AdresseLiv = '" + mail_temp + "'";
-                Statement stmt = db.getConnection().createStatement();
-                ResultSet rs = stmt.executeQuery(sql);
+            Statement stmt = db.getConnection().createStatement();
+            ResultSet rs = stmt.executeQuery(sql);
 
-                boolean existe = rs.next();
+            boolean existe = rs.next();
 
-                stmt.close();
-
-                db.getConnection().commit();
-                return existe;
+            stmt.close();
+            return existe;
         }
-
 
 
         // ============================
@@ -320,106 +318,101 @@
         // ============================
         public static void menuPrincipal() {
             while (true) {
-                clearScreen();
 
-                nombreAlertePeremption = SystemeEpicerie.getNombreAlertePeremption();
+                    clearScreen();
 
-                System.out.println("===== MENU PRINCIPAL =====");
-                System.out.println("1. Consulter nos catalogues");
-                System.out.println("2. Alertes de peremption (" + nombreAlertePeremption + ")");
+                    nombreAlertePeremption = SystemeEpicerie.getNombreAlertePeremption();
 
-                if (Objects.equals(id_client, "")) {
-                    System.out.println("3. Passer une commande");
-                    System.out.println("4. Vous ne pouvez pas clôturer de commande car vous n'êtes pas connecté(e).");
-                    System.out.println("5. Inscription / Connexion");
+                    System.out.println("===== MENU PRINCIPAL =====");
+                    System.out.println("1. Consulter nos catalogues");
+                    System.out.println("2. Alertes de peremption (" + nombreAlertePeremption + ")");
 
-                } else if (compteIncomplet) {
-                    System.out.println("3. Passer une commande");
-                    System.out.println("4. Impossible de clôturer : données personnelles incomplètes");
-                    System.out.println("5. Anonymité");
-                    System.out.println("6. Déconnexion");
+                    if (Objects.equals(id_client, "")) {
+                        System.out.println("3. Passer une commande");
+                        System.out.println("4. Vous ne pouvez pas clôturer de commande car vous n'êtes pas connecté(e).");
+                        System.out.println("5. Inscription / Connexion");
 
-                } else {
-                    System.out.println("3. Passer une commande");
-                    System.out.println("4. Clôturer une commande");
-                    System.out.println("5. Anonymité");
-                    System.out.println("6. Déconnexion");
-                }
+                    } else if (compteIncomplet) {
+                        System.out.println("3. Passer une commande");
+                        System.out.println("4. Impossible de clôturer : données personnelles incomplètes");
+                        System.out.println("5. Anonymité");
+                        System.out.println("6. Déconnexion");
 
-                System.out.println("0. Quitter");
-                System.out.print("Votre choix : ");
+                    } else {
+                        System.out.println("3. Passer une commande");
+                        System.out.println("4. Clôturer une commande");
+                        System.out.println("5. Anonymité");
+                        System.out.println("6. Déconnexion");
+                    }
 
-                // --- Lecture sécurisée ---
-                String input = scanner.nextLine().trim();
-                int choix;
-                try {
-                    choix = parseInt(input);
-                } catch (Exception e) {
-                    choix = -1;
-                }
+                    System.out.println("0. Quitter");
+                    System.out.print("Votre choix : ");
 
-                switch (choix) {
+                    // --- Lecture sécurisée ---
+                    String input = scanner.nextLine().trim();
+                    int choix;
+                    try {
+                        choix = parseInt(input);
+                    } catch (Exception e) {
+                        choix = -1;
+                    }
 
-                    case 1:
-                        menuCatalogue();
-                        break;
+                    switch (choix) {
 
-                    case 2:
-                        afficherProduitsBientotPerime();
-                        break;
-
-                    case 3:
-                        if (!(compteIncomplet || Objects.equals(id_client, ""))) {
-                            Passer_Commande();
-                        } else {
-                            System.out.println("Vous devez être connecté et complet pour commander.");
-                            pause();
-                        }
-                        break;
-
-                    case 4:
-                        if (Objects.equals(id_client, "")) {
-                            System.out.println("Impossible : vous n'êtes pas connecté(e).");
-                        } else if (compteIncomplet) {
-                            System.out.println("Impossible : informations personnelles manquantes.");
-                        } else {
-                            System.out.println("Clôture de commande à implémenter...");
-                        }
-                        pause();
-                        break;
-
-                    case 5:
-                        OracleDB db = new OracleDB();
-                        try {
-                            if (!Objects.equals(id_client, "")) {
-                                questionDonnees(db);
-                            } else {
-                                connectionDuClient();
-                            }
-                        } catch (Exception e) {
-                            System.out.println("Probleme de connection, veuillez réessayer plus tard.");
-                        } finally {
+                        case 1:
+                            menuCatalogue();
                             break;
-                        }
 
-                    case 6:
-                        if (!id_client.isEmpty()) {
-                            id_client = "";
-                            mail = "";
-                            compteIncomplet = true;
-                            System.out.println("Vous êtes maintenant déconnecté.");
-                        }
-                        pause();
-                        break;
+                        case 2:
+                            afficherProduitsBientotPerime();
+                            break;
 
-                    case 0:
-                        System.out.println("Au revoir !");
-                        return;  // <-- ON QUITTE PROPREMENT
+                        case 3:
+                            if (!(compteIncomplet || Objects.equals(id_client, ""))) {
+                                Passer_Commande();
+                            } else {
+                                System.out.println("Vous devez être connecté et complet pour commander.");
+                                pause();
+                            }
+                            break;
 
-                    default:
-                        System.out.println("Choix invalide !");
-                        pause();
-                }
+                        case 4:
+                            if (Objects.equals(id_client, "")) {
+                                System.out.println("Impossible : vous n'êtes pas connecté(e).");
+                            } else if (compteIncomplet) {
+                                System.out.println("Impossible : informations personnelles manquantes.");
+                            } else {
+                                System.out.println("Clôture de commande à implémenter...");
+                            }
+                            pause();
+                            break;
+
+                        case 5:
+                                if (!Objects.equals(id_client, "")) {
+                                    questionDonnees();
+                                } else {
+                                    connectionDuClient();
+                                }
+                            break;
+
+                        case 6:
+                            if (!id_client.isEmpty()) {
+                                id_client = "";
+                                mail = "";
+                                compteIncomplet = true;
+                                System.out.println("Vous êtes maintenant déconnecté.");
+                            }
+                            pause();
+                            break;
+
+                        case 0:
+                            System.out.println("Au revoir !");
+                            return;  // <-- ON QUITTE PROPREMENT
+
+                        default:
+                            System.out.println("Choix invalide !");
+                            pause();
+                    }
             }
         }
 
@@ -785,34 +778,43 @@
         // ============================
         // ANONYMISATION
         // ============================
-        public static void questionDonnees(OracleDB db) throws SQLException {
+        public static void questionDonnees() {
 
             clearScreen();
+            OracleDB db = new OracleDB();
+            try {
+                db.getConnection().setAutoCommit(false);
+                if (compteIncomplet) {
+                    System.out.println("Voulez-vous entrer vos informations personnelles ? (y/n)");
+                    String rep = yesNoQuestion();
 
-            if (compteIncomplet) {
-                System.out.println("Voulez-vous entrer vos informations personnelles ? (y/n)");
-                String rep = yesNoQuestion();
-
-                if (rep.equals("y")) {
-                    creerCompteComplet(db, mail);
-                    compteIncomplet = false;
-                    System.out.println("Merci, vos informations ont été enregistrées.");
+                    if (rep.equals("y")) {
+                        creerCompteComplet(db, mail);
+                        compteIncomplet = false;
+                        System.out.println("Merci, vos informations ont été enregistrées.");
+                    } else {
+                        System.out.println("Pas de souci, vous pourrez les ajouter plus tard.");
+                    }
                 } else {
-                    System.out.println("Pas de souci, vous pourrez les ajouter plus tard.");
-                }
-            }
-            else {
-                System.out.println("Voulez-vous supprimer (anonymiser) vos informations personnelles ? (y/n)");
-                String rep = yesNoQuestion();
+                    System.out.println("Voulez-vous supprimer (anonymiser) vos informations personnelles ? (y/n)");
+                    String rep = yesNoQuestion();
 
-                if (rep.equals("y")) {
-                    anonymiserClient(db);
-                } else {
-                    System.out.println("Merci pour votre confiance.");
+                    if (rep.equals("y")) {
+                        anonymiserClient(db);
+                    } else {
+                        System.out.println("Merci pour votre confiance.");
+                    }
                 }
-            }
 
-            pause();
+                pause();
+            } catch (SQLException e) {
+                try {
+                    db.getConnection().rollback();
+                } catch (SQLException ex) {
+                }
+            } finally {
+                db.close();
+            }
         }
 
 
@@ -961,6 +963,7 @@
             OracleDB db = new OracleDB();
 
             try {
+                db.getConnection().setAutoCommit(false);
                 // --- Génération ID produit ---
                 String sql = "SELECT NVL(MAX(idProduit), 0) + 1 AS newId FROM Produit";
                 Statement stmt = db.getConnection().createStatement();
@@ -1048,6 +1051,7 @@
             clearScreen();
             OracleDB db = new OracleDB();
             try {
+                db.getConnection().setAutoCommit(false);
                 String sql = """
                     SELECT * FROM Produit
                     """;
@@ -1116,6 +1120,7 @@
             OracleDB db = new OracleDB();
 
             try {
+                db.getConnection().setAutoCommit(false);
                 System.out.println("Voici les producteurs :");
                 db.runQuery("SELECT * FROM Producteur");
 
@@ -1189,6 +1194,7 @@
             clearScreen();
             OracleDB db = new OracleDB();
             try {
+                db.getConnection().setAutoCommit(false);
             String sql = """
                     SELECT * FROM Producteur
                     """;
@@ -1257,6 +1263,7 @@
             OracleDB db = new OracleDB();
 
             try {
+                db.getConnection().setAutoCommit(false);
                 System.out.println("Voici les articles produits existants :");
                 db.runQuery("SELECT * FROM Produit");
 
@@ -1347,6 +1354,7 @@
             OracleDB db = new OracleDB();
 
             try {
+                db.getConnection().setAutoCommit(false);
                 System.out.println("Voici les articles produits existants :");
                 db.runQuery("SELECT * FROM Art_Pdt");
                 System.out.println("Entrez indentifiant d'article de produit à supprimer :");
@@ -1424,6 +1432,7 @@
             OracleDB db = new OracleDB();
 
             try {
+                db.getConnection().setAutoCommit(false);
                 System.out.println("Articles disponibles :");
                 db.runQuery("SELECT * FROM Article");
 
@@ -1472,6 +1481,7 @@
             }
 
             try {
+                db.getConnection().setAutoCommit(false);
                 // Afficher tous les lots
                 System.out.println("Voici les lots de produits :");
                 db.runQuery("SELECT IdArticle, date_reception, Qte_dispo FROM Lot_Produit");
@@ -1581,6 +1591,7 @@
             OracleDB db = new OracleDB();
 
             try {
+                db.getConnection().setAutoCommit(false);
                 db.runQuery("SELECT * FROM Lot_Produit");
 
                 System.out.println("Entrez l'identifiant du lot de produit à supprimer :");
@@ -1625,6 +1636,7 @@
             OracleDB db = new OracleDB();
 
             try {
+                db.getConnection().setAutoCommit(false);
                 System.out.println("Liste des contenants existants :");
                 db.runQuery("SELECT * FROM Contenant");
 
@@ -1727,6 +1739,7 @@
             OracleDB db = new OracleDB();
 
             try {
+                db.getConnection().setAutoCommit(false);
                 db.runQuery("SELECT * FROM Contenant");
 
                 System.out.println("Entrez l'IdArticle du contenant à supprimer :");
@@ -1792,6 +1805,7 @@
             OracleDB db = new OracleDB();
 
             try {
+                db.getConnection().setAutoCommit(false);
                 System.out.println("Voici les contenants :");
                 db.runQuery("SELECT * FROM Contenant");
 
@@ -1859,6 +1873,7 @@
             OracleDB db = new OracleDB();
 
             try {
+                db.getConnection().setAutoCommit(false);
                 db.runQuery("SELECT * FROM Lot_Contenant");
 
                 System.out.println("Entrez l'identifiant de l'article du lot à supprimer :");
@@ -1907,4 +1922,6 @@
 
             db.close();
         }
+
+
     }
