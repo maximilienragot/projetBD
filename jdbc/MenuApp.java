@@ -1272,7 +1272,7 @@ public class MenuApp {
             int idCommande = genererNouvelleCommandeId(conn);
             for (LigneCommandeSaisie ligne : lignes) {
                 double disponible = stockDisponible(conn, ligne.idArticle);
-                if (disponible <= ligne.quantite) {
+                if (disponible < ligne.quantite) {
                     throw new IllegalStateException("Stock insuffisant pour " + ligne.nomProduit + ", il reste : " + disponible);
                 }
             }
@@ -1365,7 +1365,8 @@ public class MenuApp {
     }
 
     private static void ajusterStockArticle(Connection conn, int idArticle, double quantite, boolean retirer) throws SQLException {
-        String sqlLots = "SELECT date_reception, Qte_dispo FROM Lot_Produit WHERE IdArticle = ? ORDER BY date_reception";
+        String tableLots = trouverTableLots(conn, idArticle);
+        String sqlLots = "SELECT date_reception, Qte_dispo FROM " + tableLots + " WHERE IdArticle = ? ORDER BY date_reception";
         List<java.sql.Date> dates = new ArrayList<>();
         List<Double> qtes = new ArrayList<>();
         try (PreparedStatement ps = conn.prepareStatement(sqlLots)) {
@@ -1389,7 +1390,7 @@ public class MenuApp {
                 double dispo = qtes.get(i);
                 double preleve = Math.min(dispo, reste);
                 try (PreparedStatement psUpd = conn.prepareStatement(
-                        "UPDATE Lot_Produit SET Qte_dispo = Qte_dispo - ? WHERE IdArticle = ? AND date_reception = ?")) {
+                        "UPDATE " + tableLots + " SET Qte_dispo = Qte_dispo - ? WHERE IdArticle = ? AND date_reception = ?")) {
                     psUpd.setDouble(1, preleve);
                     psUpd.setInt(2, idArticle);
                     psUpd.setDate(3, dates.get(i));
@@ -1403,13 +1404,35 @@ public class MenuApp {
         } else {
             // on réinjecte la quantité sur le lot le plus ancien
             try (PreparedStatement psUpd = conn.prepareStatement(
-                    "UPDATE Lot_Produit SET Qte_dispo = Qte_dispo + ? WHERE IdArticle = ? AND date_reception = ?")) {
+                    "UPDATE " + tableLots + " SET Qte_dispo = Qte_dispo + ? WHERE IdArticle = ? AND date_reception = ?")) {
                 psUpd.setDouble(1, quantite);
                 psUpd.setInt(2, idArticle);
                 psUpd.setDate(3, dates.get(0));
                 psUpd.executeUpdate();
             }
         }
+    }
+
+    private static String trouverTableLots(Connection conn, int idArticle) throws SQLException {
+        String sqlProduit = "SELECT COUNT(*) FROM Lot_Produit WHERE IdArticle = ?";
+        try (PreparedStatement ps = conn.prepareStatement(sqlProduit)) {
+            ps.setInt(1, idArticle);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next() && rs.getInt(1) > 0) {
+                    return "Lot_Produit";
+                }
+            }
+        }
+        String sqlContenant = "SELECT COUNT(*) FROM Lot_Contenant WHERE IdArticle = ?";
+        try (PreparedStatement ps = conn.prepareStatement(sqlContenant)) {
+            ps.setInt(1, idArticle);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next() && rs.getInt(1) > 0) {
+                    return "Lot_Contenant";
+                }
+            }
+        }
+        throw new SQLException("Aucun lot pour l'article " + idArticle);
     }
 
     private static boolean stockSuffisant(Connection conn, int idArticle, double quantite) throws SQLException {
