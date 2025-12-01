@@ -577,13 +577,15 @@ public class MenuApp {
 
     /** Déplace les lots périmés vers la table Perte puis les retire du stock. */
     private static void archiverLotsPerimes() {
-        String sqlPerimes = "SELECT lp.IdArticle, lp.date_reception, lp.Qte_dispo, a.Unite " +
-                "FROM Lot_Produit lp " +
-                "JOIN Art_Pdt a ON a.IdArticle = lp.IdArticle " +
-                "WHERE " + SQL_DATE_PEREMPTION + " IS NOT NULL " +
-                "AND " + SQL_DATE_PEREMPTION + " < CURRENT_DATE";
+
+        String sqlPerimes =
+                "SELECT lp.IdArticle, lp.date_reception, lp.Qte_dispo, a.Unite " +
+                        "FROM Lot_Produit lp " +
+                        "JOIN Art_Pdt a ON a.IdArticle = lp.IdArticle " +
+                        "WHERE " + SQL_DATE_PEREMPTION + " < CURRENT_DATE";
 
         OracleDB db = null;
+
         try {
             db = new OracleDB();
             Connection conn = db.getConnection();
@@ -593,44 +595,49 @@ public class MenuApp {
                  ResultSet rs = psSelect.executeQuery()) {
 
                 while (rs.next()) {
+
                     int idArticle = rs.getInt("IdArticle");
-                    Date dateReceptionSql = rs.getDate("date_reception");
-                    LocalDate dateReception = dateReceptionSql.toLocalDate();
+                    LocalDate dateReception = rs.getDate("date_reception").toLocalDate();
                     int qte = rs.getInt("Qte_dispo");
                     String unite = rs.getString("Unite");
 
                     int newPerteId = genererNouvellePerteId(conn);
-                    try (PreparedStatement psPerte = conn.prepareStatement(
-                            "INSERT INTO Perte(IdPerte, datePerte, naturePerte, typePerte, qtePerdue, unite) " +
-                                    "VALUES (?, CURRENT_DATE, 'Peremption', 'Article', ?, ?)")) {
-                        psPerte.setInt(1, newPerteId);
-                        psPerte.setInt(2, qte);
-                        psPerte.setString(3, unite);
-                        psPerte.executeUpdate();
-                    }
 
-                    try (PreparedStatement psDel = conn.prepareStatement(
-                            "DELETE FROM Lot_Produit WHERE IdArticle = ? AND date_reception = ?")) {
-                        psDel.setInt(1, idArticle);
-                        psDel.setDate(2, java.sql.Date.valueOf(dateReception));
-                        psDel.executeUpdate();
+                    // ------------------------------------------
+                    // INSERTION DANS PERTE + SUPPRESSION DU LOT
+                    // ------------------------------------------
+                    try (PreparedStatement psInsert = conn.prepareStatement(
+                            "INSERT INTO Perte(IdPerte, datePerte, naturePerte, typePerte, qtePerdue, unite) " +
+                                    "VALUES (?, CURRENT_DATE, 'Peremption', 'Article', ?, ?)");
+
+                         PreparedStatement psDelete = conn.prepareStatement(
+                                 "DELETE FROM Lot_Produit WHERE IdArticle = ? AND date_reception = ?")) {
+
+                        psInsert.setInt(1, newPerteId);
+                        psInsert.setInt(2, qte);
+                        psInsert.setString(3, unite);
+                        psInsert.executeUpdate();
+
+                        psDelete.setInt(1, idArticle);
+                        psDelete.setDate(2, java.sql.Date.valueOf(dateReception));
+                        psDelete.executeUpdate();
                     }
                 }
             }
+
             conn.commit();
-        } catch (Exception e) {
+        }
+        catch (Exception e) {
             try {
-                if (db != null && db.getConnection() != null) {
+                if (db != null && db.getConnection() != null)
                     db.getConnection().rollback();
-                }
-            } catch (SQLException ignored) {
-            }
-        } finally {
-            if (db != null) {
-                db.close();
-            }
+            } catch (SQLException ignored) {}
+        }
+        finally {
+            if (db != null) db.close();
         }
     }
+
 
     private static int genererNouvellePerteId(Connection conn) throws SQLException {
         String sql = "SELECT NVL(MAX(IdPerte), 0) + 1 FROM Perte";
@@ -2887,11 +2894,11 @@ public class MenuApp {
             db.getConnection().setAutoCommit(false);
 
             System.out.println("Articles-produit existants :");
-            db.runQuery("SELECT IdArticle, IdProduit, Mode_Conditionnement FROM Art_Pdt");
+            db.runQuery("SELECT * FROM Art_Pdt");
 
             int idArticle = demanderEntier("Entrez l'IdArticle à supprimer : ");
 
-            // Vérifier existence dans Art_Pdt
+            // Vérifier existence de l'article produit
             PreparedStatement check = db.getConnection().prepareStatement(
                     "SELECT 1 FROM Art_Pdt WHERE IdArticle = ?"
             );
@@ -2997,7 +3004,6 @@ public class MenuApp {
     }
 
 
-
     public static void modLotProduit() {
         clearScreen();
         System.out.println("Voulez vous ajouter un lot produit ? (y/n)");
@@ -3092,7 +3098,6 @@ public class MenuApp {
         db.close();
         pause();
     }
-
 
 
     public static void modificationLotProduit() {
@@ -3243,14 +3248,12 @@ public class MenuApp {
             System.out.println("Liste des contenants existants :");
             db.runQuery("SELECT * FROM Contenant");
 
-            // === Génération de IdArticle ===
             String sqlID = "SELECT NVL(MAX(IdArticle),0)+1 AS newId FROM Article";
             ResultSet rsID = db.getConnection().createStatement().executeQuery(sqlID);
             rsID.next();
             int newId = rsID.getInt("newId");
             rsID.close();
 
-            // === Saisie ===
             System.out.println("Création d'un nouveau contenant…");
 
             String type = demanderValeurNonVide("Type (bouteille / bocal / sachet...) : ");
@@ -3299,7 +3302,7 @@ public class MenuApp {
                 return;
             }
 
-            // === INSERT Article ===
+            // Inserer l'article ===
             String sqlArticle = "INSERT INTO Article(IdArticle, prixAchat, prixTTC) VALUES (?,?,?)";
             PreparedStatement pa = db.getConnection().prepareStatement(sqlArticle);
             pa.setInt(1, newId);
@@ -3308,7 +3311,7 @@ public class MenuApp {
             pa.executeUpdate();
             pa.close();
 
-            // === INSERT Contenant ===
+            // === Inserer le contenant ===
             String sqlCont = """
             INSERT INTO Contenant(IdArticle, Type, Capacite, Unite, Caractere)
             VALUES (?, ?, ?, ?, ?)
@@ -3502,7 +3505,7 @@ public class MenuApp {
 
         try {
             db.getConnection().setAutoCommit(false);
-            db.runQuery("SELECT IdArticle, TO_CHAR(date_reception,'YYYY-MM-DD') AS dateRec, Qte_dispo FROM Lot_Contenant");
+            db.runQuery("SELECT * FROM Lot_Contenant");
 
             int idArt = demanderEntier("IdArticle du lot contenant à supprimer : ");
             String dateRec = demanderValeurNonVide("Date réception (YYYY-MM-DD) : ");
@@ -3552,6 +3555,4 @@ public class MenuApp {
         db.close();
         pause();
     }
-
-
 }
