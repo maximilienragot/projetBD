@@ -1629,28 +1629,66 @@ public class MenuApp {
     }
 
     private static void anonymiserClient(OracleDB db) throws SQLException {
+
         Connection conn = db.getConnection();
+        if (conn == null) {
+            throw new SQLException("Impossible de se connecter.");
+        }
+
         boolean previousAutoCommit = conn.getAutoCommit();
         conn.setAutoCommit(false);
+
+        int clientId = Integer.parseInt(id_client);
+
         try {
-            try (PreparedStatement ps = conn.prepareStatement("DELETE FROM Client_Non_Oublie WHERE IdClient = ?")) {
-                ps.setInt(1, Integer.parseInt(id_client));
+            // 1) Vérifier absence de commandes actives
+            String sqlCheckCmd = """
+            SELECT 1
+            FROM Commande
+            WHERE IdClient = ?
+            AND Statut IN ('En Préparation', 'Prête', 'En Livraison')
+        """;
+
+            try (PreparedStatement ps = conn.prepareStatement(sqlCheckCmd)) {
+                ps.setInt(1, clientId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) {
+                        System.out.println("Impossible : vous avez une commande non terminée ou en livraison.");
+                        conn.rollback();
+                        conn.setAutoCommit(previousAutoCommit);
+                        return;
+                    }
+                }
+            }
+
+            // 2) Supprimer les adresses
+            String delAdr = "DELETE FROM Adresse_Livraison WHERE IdClient = ?";
+            try (PreparedStatement ps = conn.prepareStatement(delAdr)) {
+                ps.setInt(1, clientId);
                 ps.executeUpdate();
             }
-            try (PreparedStatement ps = conn.prepareStatement("DELETE FROM Adresse_Livraison WHERE IdClient = ?")) {
-                ps.setInt(1, Integer.parseInt(id_client));
+
+            // 3) Supprimer les données personnelles du client
+            String delClient = "DELETE FROM Client_Non_Oublie WHERE IdClient = ?";
+            try (PreparedStatement ps = conn.prepareStatement(delClient)) {
+                ps.setInt(1, clientId);
                 ps.executeUpdate();
             }
+
             conn.commit();
-            id_client = "";
+            conn.setAutoCommit(previousAutoCommit);
+
+            System.out.println("Vos données ont été supprimées conformément au droit à l'oubli.");
+
+            // Mise à jour interface utilisateur
             mail = "";
             compteIncomplet = true;
-            System.out.println("Vos informations ont été supprimées.");
+            id_client = "";
+
         } catch (SQLException e) {
             conn.rollback();
-            throw e;
-        } finally {
             conn.setAutoCommit(previousAutoCommit);
+            throw e;
         }
     }
 
