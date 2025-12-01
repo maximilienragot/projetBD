@@ -20,6 +20,7 @@ public class MenuApp {
     private static final int MARGE_TOLERE_EXPIRATION = 10;
     private static final String STATUT_RECUPERE = "Récupérée | Livrée";
     private static final Map<Integer, Double> prixBaseArticles = new HashMap<>();
+    private static Map<Integer, LocalDate> derniereReduction = new HashMap<>();
     private static final DateTimeFormatter HEURE_FORMAT = DateTimeFormatter.ofPattern("HH:mm");
     private static final String SQL_DATE_PEREMPTION = "CASE WHEN REGEXP_LIKE(lp.date_peremption, '^[0-9]{2}-[A-Z]{3}-[0-9]{2}$') THEN TO_DATE(lp.date_peremption, 'DD-MON-RR', 'NLS_DATE_LANGUAGE=AMERICAN') WHEN REGEXP_LIKE(lp.date_peremption, '^[0-9]{4}-[0-9]{2}-[0-9]{2}$') THEN TO_DATE(lp.date_peremption, 'YYYY-MM-DD') ELSE NULL END";
     static Scanner scanner = new Scanner(System.in);
@@ -650,36 +651,45 @@ public class MenuApp {
     }
 
     /** Applique des remises progressives (50% à 90%) selon la proximité de la date de péremption. */
+
     private static void appliquerRemisesProgressives() {
         LocalDate dateCourante = LocalDate.now();
         LocalDate limite = dateCourante.plusDays(MARGE_TOLERE_EXPIRATION);
 
-        String sql = "SELECT lp.IdArticle, ar.prixTTC, MIN(" + SQL_DATE_PEREMPTION + ") AS peremption " +
-                "FROM Lot_Produit lp " +
-                "JOIN Article ar ON ar.IdArticle = lp.IdArticle " +
-                "WHERE " + SQL_DATE_PEREMPTION + " IS NOT NULL " +
-                "AND " + SQL_DATE_PEREMPTION + " <= TO_DATE(?, 'YYYY-MM-DD') " +
-                "GROUP BY lp.IdArticle, ar.prixTTC";
+        String sql =
+                "SELECT lp.IdArticle, ar.prixTTC, MIN(" + SQL_DATE_PEREMPTION + ") AS peremption " +
+                        "FROM Lot_Produit lp " +
+                        "JOIN Article ar ON ar.IdArticle = lp.IdArticle " +
+                        "WHERE " + SQL_DATE_PEREMPTION + " IS NOT NULL " +
+                        "AND " + SQL_DATE_PEREMPTION + " <= TO_DATE(?, 'YYYY-MM-DD') " +
+                        "GROUP BY lp.IdArticle, ar.prixTTC";
 
-        OracleDB db = null;
+        OracleDB db = new OracleDB();
         try {
-            db = new OracleDB();
             Connection conn = db.getConnection();
 
             try (PreparedStatement ps = conn.prepareStatement(sql)) {
                 ps.setString(1, limite.toString());
                 try (ResultSet rs = ps.executeQuery()) {
+
                     while (rs.next()) {
+
                         int idArticle = rs.getInt("IdArticle");
-                        java.sql.Date peremptionSql = rs.getDate("peremption");
-                        if (peremptionSql == null) {
-                            continue;
+
+                        // Protection : réduction déjà appliquée aujourd'hui ?
+                        if (derniereReduction.containsKey(idArticle) &&
+                                derniereReduction.get(idArticle).equals(dateCourante)) {
+                            continue; // → on ignore cet article
                         }
+
+                        java.sql.Date peremptionSql = rs.getDate("peremption");
+                        if (peremptionSql == null) continue;
+
                         LocalDate peremptionDate = peremptionSql.toLocalDate();
+
                         long joursRestants = ChronoUnit.DAYS.between(dateCourante, peremptionDate);
                         long joursClampe = Math.max(0, Math.min(MARGE_TOLERE_EXPIRATION, joursRestants));
 
-                        // Remise progresse de 50% (10 jours) à 90% (le jour J ou après)
                         double facteurPrix = 0.1 + 0.4 * (joursClampe / (double) MARGE_TOLERE_EXPIRATION);
 
                         double prixActuel = rs.getDouble("prixTTC");
@@ -687,11 +697,15 @@ public class MenuApp {
                         double prixCible = arrondirDeuxDecimales(prixBase * facteurPrix);
 
                         if (prixActuel - prixCible > 0.009) {
-                            try (PreparedStatement psUpdate = conn.prepareStatement("UPDATE Article SET prixTTC = ? WHERE IdArticle = ?")) {
+                            try (PreparedStatement psUpdate = conn.prepareStatement(
+                                    "UPDATE Article SET prixTTC = ? WHERE IdArticle = ?")) {
                                 psUpdate.setDouble(1, prixCible);
                                 psUpdate.setInt(2, idArticle);
                                 psUpdate.executeUpdate();
                             }
+
+                            // On note que la réduction du jour est faite
+                            derniereReduction.put(idArticle, dateCourante);
                         }
                     }
                 }
@@ -699,11 +713,10 @@ public class MenuApp {
         } catch (Exception e) {
             System.out.println("Impossible d'appliquer les remises progressives.");
         } finally {
-            if (db != null) {
-                db.close();
-            }
+            if (db != null) db.close();
         }
     }
+
 
     private static double arrondirDeuxDecimales(double valeur) {
         return Math.round(valeur * 100.0) / 100.0;
