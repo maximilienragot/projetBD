@@ -51,176 +51,6 @@ public class MenuApp {
         }
     }
 
-    private static void mettreAJourInformationsPersonnelles() {
-        clearScreen();
-        System.out.println("===== Modifier mes informations =====");
-        if (id_client.isEmpty()) {
-            System.out.println("Vous devez être connecté(e).");
-            pause();
-            return;
-        }
-        OracleDB db = new OracleDB();
-        Connection conn = db.getConnection();
-        if (conn == null) {
-            System.out.println("Connexion indisponible.");
-            db.close();
-            pause();
-            return;
-        }
-        boolean transactionActive = false;
-        boolean previousAutoCommit = true;
-        try {
-            int clientId = Integer.parseInt(id_client);
-            String nomActuel;
-            String prenomActuel;
-            String telActuel;
-            String emailActuel;
-
-            String sqlInfo = "SELECT NomC, PrenomC, NumTelC, EmailC FROM Client_Non_Oublie WHERE IdClient = ?";
-            try (PreparedStatement ps = conn.prepareStatement(sqlInfo)) {
-                ps.setInt(1, clientId);
-                try (ResultSet rs = ps.executeQuery()) {
-                    if (!rs.next()) {
-                        System.out.println("Aucune information enregistrée. Complétez d'abord votre profil.");
-                        compteIncomplet = true;
-                        return;
-                    }
-                    nomActuel = rs.getString("NomC");
-                    prenomActuel = rs.getString("PrenomC");
-                    telActuel = rs.getString("NumTelC");
-                    emailActuel = rs.getString("EmailC");
-                }
-            }
-
-            List<String> adressesActuelles = new ArrayList<>();
-            String sqlAdresse = "SELECT AdresseLiv FROM Adresse_Livraison WHERE IdClient = ? ORDER BY AdresseLiv";
-            try (PreparedStatement ps = conn.prepareStatement(sqlAdresse)) {
-                ps.setInt(1, clientId);
-                try (ResultSet rs = ps.executeQuery()) {
-                    while (rs.next()) {
-                        adressesActuelles.add(rs.getString(1));
-                    }
-                }
-            }
-
-            if (adressesActuelles.isEmpty()) {
-                System.out.println("Aucune adresse enregistrée.");
-            } else {
-                System.out.println("Adresses enregistrées :");
-                for (String adresse : adressesActuelles) {
-                    System.out.println("- " + adresse);
-                }
-            }
-
-            System.out.print("Nom (" + nomActuel + ") : ");
-            String nom = scanner.nextLine().trim();
-            if (nom.isEmpty()) {
-                nom = nomActuel;
-            }
-
-            System.out.print("Prénom (" + prenomActuel + ") : ");
-            String prenom = scanner.nextLine().trim();
-            if (prenom.isEmpty()) {
-                prenom = prenomActuel;
-            }
-
-            System.out.print("Téléphone (" + telActuel + ") : ");
-            String telephone = scanner.nextLine().trim();
-            if (telephone.isEmpty()) {
-                telephone = telActuel;
-            }
-
-            System.out.print("Email (" + emailActuel + ") : ");
-            String nouvelEmail = scanner.nextLine().trim();
-            if (nouvelEmail.isEmpty()) {
-                nouvelEmail = emailActuel;
-            }
-
-            if (!nouvelEmail.equalsIgnoreCase(emailActuel) && mailExisteDansBDD(db, nouvelEmail)) {
-                System.out.println("Email déjà utilisé.");
-                return;
-            }
-
-            List<String> nouvellesAdresses = null;
-            System.out.println("Souhaitez-vous remplacer vos adresses de livraison ? (y/n)");
-            if (yesNoQuestion().equals("y")) {
-                nouvellesAdresses = saisirAdresses();
-            }
-
-            previousAutoCommit = conn.getAutoCommit();
-            conn.setAutoCommit(false);
-            transactionActive = true;
-
-            String updateSql = "UPDATE Client_Non_Oublie SET NomC = ?, PrenomC = ?, NumTelC = ?, EmailC = ? WHERE IdClient = ?";
-            try (PreparedStatement ps = conn.prepareStatement(updateSql)) {
-                ps.setString(1, nom);
-                ps.setString(2, prenom);
-                ps.setString(3, telephone);
-                ps.setString(4, nouvelEmail);
-                ps.setInt(5, clientId);
-                ps.executeUpdate();
-            }
-
-            if (nouvellesAdresses != null && !nouvellesAdresses.isEmpty()) {
-                try (PreparedStatement ps = conn.prepareStatement("DELETE FROM Adresse_Livraison WHERE IdClient = ?")) {
-                    ps.setInt(1, clientId);
-                    ps.executeUpdate();
-                }
-                for (String adresse : nouvellesAdresses) {
-                    enregistrerAdresse(conn, clientId, adresse);
-                }
-            }
-
-            conn.commit();
-            transactionActive = false;
-            conn.setAutoCommit(previousAutoCommit);
-            mail = nouvelEmail;
-            compteIncomplet = false;
-            System.out.println("Informations mises à jour.");
-        } catch (NumberFormatException e) {
-            System.out.println("Identifiant client invalide.");
-        } catch (SQLException e) {
-            if (transactionActive) {
-                try {
-                    conn.rollback();
-                } catch (SQLException ignored) {
-                }
-                try {
-                    conn.setAutoCommit(previousAutoCommit);
-                } catch (SQLException ignored) {
-                }
-            }
-            System.out.println("Impossible de mettre à jour vos informations : " + e.getMessage());
-        } finally {
-            db.close();
-            pause();
-        }
-    }
-
-    private static void supprimerDonneesClient() {
-        clearScreen();
-        System.out.println("===== Supprimer mes données =====");
-        if (id_client.isEmpty()) {
-            System.out.println("Vous devez être connecté(e).");
-            pause();
-            return;
-        }
-        OracleDB db = new OracleDB();
-        try {
-            System.out.println("Cette action est définitive. Confirmez-vous la suppression ? (y/n)");
-            if (yesNoQuestion().equals("y")) {
-                anonymiserClient(db);
-            } else {
-                System.out.println("Suppression annulée.");
-            }
-        } catch (SQLException e) {
-            System.out.println("Impossible de supprimer vos données : " + e.getMessage());
-        } finally {
-            db.close();
-            pause();
-        }
-    }
-
     private static void consulterCommandesClient() {
         clearScreen();
         System.out.println("===== Mes commandes =====");
@@ -379,128 +209,6 @@ public class MenuApp {
                     pause();
                 }
             }
-        }
-    }
-
-    public static void connectionDuClient() {
-        System.out.println("Avez-vous un compte ? (y/n)");
-        String reponse = yesNoQuestion();
-        OracleDB db = new OracleDB();
-        try {
-            if (reponse.equals("y")) {
-                connexionClient(db);
-            } else {
-                System.out.println("Souhaitez-vous vous inscrire ? (y/n)");
-                if (yesNoQuestion().equals("y")) {
-                    inscriptionClient(db);
-                } else {
-                    System.out.println("Pas de souci, vous pourrez vous inscrire plus tard.");
-                }
-            }
-        } catch (SQLException e) {
-            System.out.println("Erreur d'authentification : " + e.getMessage());
-            try {
-                db.getConnection().rollback();
-            } catch (SQLException ignored) {
-            }
-        } finally {
-            db.close();
-        }
-        pause();
-    }
-
-    private static void connexionClient(OracleDB db) throws SQLException {
-        while (true) {
-            String email = demanderValeurNonVide("Entrez votre email : ");
-            Integer clientId = trouverClientParMail(db, email);
-            if (clientId != null) {
-                id_client = String.valueOf(clientId);
-                mail = email;
-                compteIncomplet = false;
-                System.out.println("Connexion réussie.");
-                System.out.println("Souhaitez-vous mettre à jour vos informations personnelles ? (y/n)");
-                if (yesNoQuestion().equals("y")) {
-                    questionDonnees();
-                }
-                return;
-            }
-            System.out.println("Aucun compte trouvé pour cet email. Voulez-vous vous inscrire avec cet email ? (y/n)");
-            if (yesNoQuestion().equals("y")) {
-                creerCompteComplet(db, email);
-                return;
-            }
-            System.out.println("Voulez-vous essayer avec un autre email ? (y/n)");
-            if (yesNoQuestion().equals("n")) {
-                return;
-            }
-        }
-    }
-
-    private static void inscriptionClient(OracleDB db) throws SQLException {
-        while (true) {
-            String email = demanderValeurNonVide("Entrez votre email : ");
-            if (mailExisteDansBDD(db, email)) {
-                System.out.println("Email déjà utilisé. Voulez-vous vous connecter ? (y/n)");
-                if (yesNoQuestion().equals("y")) {
-                    connexionClient(db);
-                    return;
-                }
-            } else {
-                creerCompteComplet(db, email);
-                return;
-            }
-        }
-    }
-
-    private static void creerCompteComplet(OracleDB db, String email) throws SQLException {
-        Connection conn = db.getConnection();
-        boolean previousAutoCommit = conn.getAutoCommit();
-        conn.setAutoCommit(false);
-        try {
-            int newId = genererNouvelIdClient(conn);
-            insererClient(conn, newId);
-            String nom = demanderValeurNonVide("Entrez votre nom : ");
-            String prenom = demanderValeurNonVide("Entrez votre prénom : ");
-            String telephone = demanderValeurNonVide("Entrez votre numéro de téléphone : ");
-            List<String> adresses = saisirAdresses();
-            for (String adresse : adresses) {
-                enregistrerAdresse(conn, newId, adresse);
-            }
-            try (PreparedStatement ps = conn.prepareStatement("INSERT INTO Client_Non_Oublie (IdClient, NomC, PrenomC, NumTelC, EmailC) VALUES (?, ?, ?, ?, ?)")) {
-                ps.setInt(1, newId);
-                ps.setString(2, nom);
-                ps.setString(3, prenom);
-                ps.setString(4, telephone);
-                ps.setString(5, email);
-                ps.executeUpdate();
-            }
-            conn.commit();
-            id_client = String.valueOf(newId);
-            mail = email;
-            compteIncomplet = false;
-            System.out.println("Compte créé. Votre identifiant est " + id_client + ".");
-        } catch (SQLException e) {
-            conn.rollback();
-            throw e;
-        } finally {
-            conn.setAutoCommit(previousAutoCommit);
-        }
-    }
-
-    private static int genererNouvelIdClient(Connection conn) throws SQLException {
-        String sql = "SELECT NVL(MAX(IdClient), 0) + 1 FROM Client";
-        try (PreparedStatement ps = conn.prepareStatement(sql); ResultSet rs = ps.executeQuery()) {
-            if (rs.next()) {
-                return rs.getInt(1);
-            }
-        }
-        return 1;
-    }
-
-    private static void insererClient(Connection conn, int id) throws SQLException {
-        try (PreparedStatement ps = conn.prepareStatement("INSERT INTO Client (IdClient) VALUES (?)")) {
-            ps.setInt(1, id);
-            ps.executeUpdate();
         }
     }
 
@@ -1712,6 +1420,315 @@ public class MenuApp {
         System.out.println("Vous êtes maintenant déconnecté(e).");
         pause();
     }
+
+    private static void mettreAJourInformationsPersonnelles() {
+        clearScreen();
+        System.out.println("===== Modifier mes informations =====");
+        if (id_client.isEmpty()) {
+            System.out.println("Vous devez être connecté(e).");
+            pause();
+            return;
+        }
+        OracleDB db = new OracleDB();
+        Connection conn = db.getConnection();
+        if (conn == null) {
+            System.out.println("Connexion indisponible.");
+            db.close();
+            pause();
+            return;
+        }
+        boolean transactionActive = false;
+        boolean previousAutoCommit = true;
+        try {
+            int clientId = Integer.parseInt(id_client);
+            String nomActuel;
+            String prenomActuel;
+            String telActuel;
+            String emailActuel;
+
+            String sqlInfo = "SELECT NomC, PrenomC, NumTelC, EmailC FROM Client_Non_Oublie WHERE IdClient = ?";
+            try (PreparedStatement ps = conn.prepareStatement(sqlInfo)) {
+                ps.setInt(1, clientId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (!rs.next()) {
+                        System.out.println("Aucune information enregistrée. Complétez d'abord votre profil.");
+                        compteIncomplet = true;
+                        return;
+                    }
+                    nomActuel = rs.getString("NomC");
+                    prenomActuel = rs.getString("PrenomC");
+                    telActuel = rs.getString("NumTelC");
+                    emailActuel = rs.getString("EmailC");
+                }
+            }
+
+            List<String> adressesActuelles = new ArrayList<>();
+            String sqlAdresse = "SELECT AdresseLiv FROM Adresse_Livraison WHERE IdClient = ? ORDER BY AdresseLiv";
+            try (PreparedStatement ps = conn.prepareStatement(sqlAdresse)) {
+                ps.setInt(1, clientId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        adressesActuelles.add(rs.getString(1));
+                    }
+                }
+            }
+
+            if (adressesActuelles.isEmpty()) {
+                System.out.println("Aucune adresse enregistrée.");
+            } else {
+                System.out.println("Adresses enregistrées :");
+                for (String adresse : adressesActuelles) {
+                    System.out.println("- " + adresse);
+                }
+            }
+
+            System.out.print("Nom (" + nomActuel + ") : ");
+            String nom = scanner.nextLine().trim();
+            if (nom.isEmpty()) {
+                nom = nomActuel;
+            }
+
+            System.out.print("Prénom (" + prenomActuel + ") : ");
+            String prenom = scanner.nextLine().trim();
+            if (prenom.isEmpty()) {
+                prenom = prenomActuel;
+            }
+
+            System.out.print("Téléphone (" + telActuel + ") : ");
+            String telephone = scanner.nextLine().trim();
+            if (telephone.isEmpty()) {
+                telephone = telActuel;
+            }
+
+            System.out.print("Email (" + emailActuel + ") : ");
+            String nouvelEmail = scanner.nextLine().trim();
+            if (nouvelEmail.isEmpty()) {
+                nouvelEmail = emailActuel;
+            }
+
+            if (!nouvelEmail.equalsIgnoreCase(emailActuel) && mailExisteDansBDD(db, nouvelEmail)) {
+                System.out.println("Email déjà utilisé.");
+                return;
+            }
+
+            List<String> nouvellesAdresses = null;
+            System.out.println("Souhaitez-vous remplacer vos adresses de livraison ? (y/n)");
+            if (yesNoQuestion().equals("y")) {
+                nouvellesAdresses = saisirAdresses();
+            }
+
+            previousAutoCommit = conn.getAutoCommit();
+            conn.setAutoCommit(false);
+            transactionActive = true;
+
+            String updateSql = "UPDATE Client_Non_Oublie SET NomC = ?, PrenomC = ?, NumTelC = ?, EmailC = ? WHERE IdClient = ?";
+            try (PreparedStatement ps = conn.prepareStatement(updateSql)) {
+                ps.setString(1, nom);
+                ps.setString(2, prenom);
+                ps.setString(3, telephone);
+                ps.setString(4, nouvelEmail);
+                ps.setInt(5, clientId);
+                ps.executeUpdate();
+            }
+
+            if (nouvellesAdresses != null && !nouvellesAdresses.isEmpty()) {
+                try (PreparedStatement ps = conn.prepareStatement("DELETE FROM Adresse_Livraison WHERE IdClient = ?")) {
+                    ps.setInt(1, clientId);
+                    ps.executeUpdate();
+                }
+                for (String adresse : nouvellesAdresses) {
+                    enregistrerAdresse(conn, clientId, adresse);
+                }
+            }
+
+            conn.commit();
+            transactionActive = false;
+            conn.setAutoCommit(previousAutoCommit);
+            mail = nouvelEmail;
+            compteIncomplet = false;
+            System.out.println("Informations mises à jour.");
+        } catch (NumberFormatException e) {
+            System.out.println("Identifiant client invalide.");
+        } catch (SQLException e) {
+            if (transactionActive) {
+                try {
+                    conn.rollback();
+                } catch (SQLException ignored) {
+                }
+                try {
+                    conn.setAutoCommit(previousAutoCommit);
+                } catch (SQLException ignored) {
+                }
+            }
+            System.out.println("Impossible de mettre à jour vos informations : " + e.getMessage());
+        } finally {
+            db.close();
+            pause();
+        }
+    }
+
+    private static void supprimerDonneesClient() {
+        clearScreen();
+        System.out.println("===== Supprimer mes données =====");
+        if (id_client.isEmpty()) {
+            System.out.println("Vous devez être connecté(e).");
+            pause();
+            return;
+        }
+        OracleDB db = new OracleDB();
+        try {
+            System.out.println("Cette action est définitive. Confirmez-vous la suppression ? (y/n)");
+            if (yesNoQuestion().equals("y")) {
+                anonymiserClient(db);
+            } else {
+                System.out.println("Suppression annulée.");
+            }
+        } catch (SQLException e) {
+            System.out.println("Impossible de supprimer vos données : " + e.getMessage());
+        } finally {
+            db.close();
+            pause();
+        }
+    }
+
+    public static void connectionDuClient() {
+        System.out.println("Avez-vous un compte ? (y/n)");
+        String reponse = yesNoQuestion();
+        OracleDB db = new OracleDB();
+        try {
+            if (reponse.equals("y")) {
+                connexionClient(db);
+            } else {
+                System.out.println("Souhaitez-vous vous inscrire ? (y/n)");
+                if (yesNoQuestion().equals("y")) {
+                    inscriptionClient(db);
+                } else {
+                    System.out.println("Pas de souci, vous pourrez vous inscrire plus tard.");
+                }
+            }
+        } catch (SQLException e) {
+            System.out.println("Erreur d'authentification : " + e.getMessage());
+            try {
+                db.getConnection().rollback();
+            } catch (SQLException ignored) {
+            }
+        } finally {
+            db.close();
+        }
+        pause();
+    }
+
+    private static void connexionClient(OracleDB db) throws SQLException {
+        while (true) {
+            String email = demanderValeurNonVide("Entrez votre email : ");
+            Integer clientId = trouverClientParMail(db, email);
+            if (clientId != null) {
+                id_client = String.valueOf(clientId);
+                mail = email;
+                compteIncomplet = !profilExisteDansClientNonOublie(clientId);
+                System.out.println("Connexion réussie.");
+                System.out.println("Souhaitez-vous mettre à jour vos informations personnelles ? (y/n)");
+                if (yesNoQuestion().equals("y")) {
+                    questionDonnees();
+                }
+                return;
+            }
+            System.out.println("Aucun compte trouvé pour cet email. Voulez-vous vous inscrire avec cet email ? (y/n)");
+            if (yesNoQuestion().equals("y")) {
+                creerCompteComplet(db, email);
+                return;
+            }
+            System.out.println("Voulez-vous essayer avec un autre email ? (y/n)");
+            if (yesNoQuestion().equals("n")) {
+                return;
+            }
+        }
+    }
+
+    private static void inscriptionClient(OracleDB db) throws SQLException {
+        while (true) {
+            String email = demanderValeurNonVide("Entrez votre email : ");
+            if (mailExisteDansBDD(db, email)) {
+                System.out.println("Email déjà utilisé. Voulez-vous vous connecter ? (y/n)");
+                if (yesNoQuestion().equals("y")) {
+                    connexionClient(db);
+                    return;
+                }
+            } else {
+                creerCompteComplet(db, email);
+                return;
+            }
+        }
+    }
+
+    private static void creerCompteComplet(OracleDB db, String email) throws SQLException {
+        Connection conn = db.getConnection();
+        boolean previousAutoCommit = conn.getAutoCommit();
+        conn.setAutoCommit(false);
+        try {
+            int newId = genererNouvelIdClient(conn);
+            insererClient(conn, newId);
+            String nom = demanderValeurNonVide("Entrez votre nom : ");
+            String prenom = demanderValeurNonVide("Entrez votre prénom : ");
+            String telephone = demanderValeurNonVide("Entrez votre numéro de téléphone : ");
+            List<String> adresses = saisirAdresses();
+            for (String adresse : adresses) {
+                enregistrerAdresse(conn, newId, adresse);
+            }
+            try (PreparedStatement ps = conn.prepareStatement("INSERT INTO Client_Non_Oublie (IdClient, NomC, PrenomC, NumTelC, EmailC) VALUES (?, ?, ?, ?, ?)")) {
+                ps.setInt(1, newId);
+                ps.setString(2, nom);
+                ps.setString(3, prenom);
+                ps.setString(4, telephone);
+                ps.setString(5, email);
+                ps.executeUpdate();
+            }
+            conn.commit();
+            id_client = String.valueOf(newId);
+            mail = email;
+            compteIncomplet = false;
+            System.out.println("Compte créé. Votre identifiant est " + id_client + ".");
+        } catch (SQLException e) {
+            conn.rollback();
+            throw e;
+        } finally {
+            conn.setAutoCommit(previousAutoCommit);
+        }
+    }
+
+    private static int genererNouvelIdClient(Connection conn) throws SQLException {
+        String sql = "SELECT NVL(MAX(IdClient), 0) + 1 FROM Client";
+        try (PreparedStatement ps = conn.prepareStatement(sql); ResultSet rs = ps.executeQuery()) {
+            if (rs.next()) {
+                return rs.getInt(1);
+            }
+        }
+        return 1;
+    }
+
+    private static void insererClient(Connection conn, int id) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement("INSERT INTO Client (IdClient) VALUES (?)")) {
+            ps.setInt(1, id);
+            ps.executeUpdate();
+        }
+    }
+
+    private static boolean profilExisteDansClientNonOublie(int idClient) {
+        OracleDB db = new OracleDB();
+        try {
+            String sql = "SELECT 1 FROM Client_Non_Oublie WHERE IdClient = ?";
+            PreparedStatement ps = db.getConnection().prepareStatement(sql);
+            ps.setInt(1, idClient);
+            ResultSet rs = ps.executeQuery();
+            boolean existe = rs.next();
+            rs.close();
+            ps.close();
+            return existe;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
 
 
 
